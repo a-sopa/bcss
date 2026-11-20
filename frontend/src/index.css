@@ -1,0 +1,200 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy-950: #071a2e;
+  --color-navy-900: #0b2340;
+  --color-teal: #42d6c5;
+  --color-teal-soft: #6fe4d6;
+  --color-azure: #528bff;
+  --color-ink: #f3f7fc;
+  --color-muted: #8b9bb4;
+  --color-line: rgb(160 190 220 / 0.12);
+  --color-warn: #f5b85a;
+  --color-danger: #ff7a8a;
+
+  --font-display: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+  body {
+    @apply bg-navy-950 font-sans text-ink antialiased;
+    overflow-x: hidden;
+  }
+  ::selection {
+    background: rgb(66 214 197 / 0.28);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-teal);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
+
+@utility text-gradient {
+  background: linear-gradient(100deg, var(--color-teal) 10%, var(--color-azure) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- Atmosphere ---------- */
+
+.hero-atmosphere {
+  background:
+    radial-gradient(ellipse 55% 45% at 50% 56%, rgb(66 214 197 / 0.1), transparent 70%),
+    radial-gradient(ellipse 70% 55% at 50% 60%, rgb(82 139 255 / 0.09), transparent 75%),
+    linear-gradient(180deg, var(--color-navy-950) 0%, #08203a 55%, var(--color-navy-950) 100%);
+}
+
+.europe-atmosphere {
+  background:
+    radial-gradient(ellipse 45% 60% at 85% 40%, rgb(82 139 255 / 0.1), transparent 70%),
+    radial-gradient(ellipse 35% 45% at 10% 80%, rgb(66 214 197 / 0.06), transparent 70%);
+}
+
+.final-atmosphere {
+  background: radial-gradient(ellipse 40% 55% at 50% 50%, rgb(66 214 197 / 0.1), transparent 70%);
+}
+
+/* ---------- Cloud network ---------- */
+
+.net-halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: net-halo 6s ease-in-out infinite;
+}
+
+@keyframes net-halo {
+  0%, 100% { opacity: 0.45; transform: scale(0.94); }
+  50%      { opacity: 0.9;  transform: scale(1.06); }
+}
+
+.net-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.net-ring {
+  transition: stroke-opacity 0.5s var(--ease-soft);
+}
+
+.net-hover-ring {
+  opacity: 0;
+  transform: scale(0.82);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 0.5s var(--ease-soft), transform 0.6s var(--ease-soft);
+}
+
+.net-label {
+  opacity: 0;
+  transition: opacity 0.5s var(--ease-soft);
+  pointer-events: none;
+}
+
+.net-node:hover .net-ring,
+.net-node:focus-visible .net-ring {
+  stroke-opacity: 1;
+}
+
+.net-node:hover .net-hover-ring,
+.net-node:focus-visible .net-hover-ring {
+  opacity: 0.55;
+  transform: scale(1);
+}
+
+.net-node:hover .net-label,
+.net-node:focus-visible .net-label {
+  opacity: 1;
+}
+
+/* A short dash that travels outward, from the cloud to the node. */
+.net-pulse {
+  stroke-dasharray: 0.05 0.95;
+  stroke-dashoffset: 0.05;
+  opacity: 0;
+  animation: net-pulse 8s linear infinite backwards;
+}
+
+@keyframes net-pulse {
+  0%   { stroke-dashoffset: 0.05; opacity: 0; }
+  10%  { opacity: 1; }
+  75%  { opacity: 1; }
+  100% { stroke-dashoffset: 1; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .net-halo,
+  .net-pulse {
+    animation: none;
+  }
+  .net-halo {
+    opacity: 0.6;
+  }
+}
+
+/* ---------- Scroll cue ---------- */
+
+.scroll-cue-line {
+  background: linear-gradient(180deg, transparent, var(--color-teal));
+  animation: scroll-cue 2.8s var(--ease-soft) infinite;
+  transform-origin: top;
+}
+
+@keyframes scroll-cue {
+  0%   { transform: scaleY(0); opacity: 0; }
+  40%  { transform: scaleY(1); opacity: 1; }
+  100% { transform: scaleY(1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-cue-line {
+    animation: none;
+  }
+}
+
+/* ---------- Code editor severity colours: yellow → orange → red → black ---------- */
+
+.monaco-editor .sev-line-low { background: rgb(242 201 76 / 0.09); }
+.monaco-editor .sev-line-medium { background: rgb(255 159 67 / 0.13); }
+.monaco-editor .sev-line-high { background: rgb(255 77 94 / 0.16); }
+.monaco-editor .sev-line-critical { background: rgb(0 0 0 / 0.6); }
+
+.monaco-editor .sev-gutter { margin-left: 4px; width: 4px !important; border-radius: 2px; }
+.monaco-editor .sev-gutter-low { background: #f2c94c; }
+.monaco-editor .sev-gutter-medium { background: #ff9f43; }
+.monaco-editor .sev-gutter-high { background: #ff4d5e; }
+.monaco-editor .sev-gutter-critical { background: #000; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.85); }
+
+.monaco-editor .sev-text { text-decoration-line: underline; text-decoration-style: wavy; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.monaco-editor .sev-text-low { text-decoration-color: #f2c94c; }
+.monaco-editor .sev-text-medium { text-decoration-color: #ff9f43; }
+.monaco-editor .sev-text-high { text-decoration-color: #ff4d5e; }
+.monaco-editor .sev-text-critical {
+  background: #000;
+  color: #fff !important;
+  text-decoration-color: #fff;
+  border-radius: 2px;
+  outline: 1px solid rgb(255 255 255 / 0.55);
+}
+
+.editor-light .monaco-editor .sev-line-low { background: rgb(242 201 76 / 0.2); }
+.editor-light .monaco-editor .sev-line-medium { background: rgb(255 159 67 / 0.2); }
+.editor-light .monaco-editor .sev-line-high { background: rgb(255 77 94 / 0.16); }
+.editor-light .monaco-editor .sev-line-critical { background: rgb(0 0 0 / 0.14); }
+.editor-light .monaco-editor .sev-gutter-critical { box-shadow: none; }
+.editor-light .monaco-editor .sev-text-critical { outline: none; }

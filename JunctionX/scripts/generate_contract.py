@@ -1,0 +1,152 @@
+"""Regenerate checked-in schemas and explicitly synthetic handoff examples."""
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+from adapters.normalized import NormalizedFixture
+from api.main import app
+from core.identity import stable_asset_id, stable_finding_id
+from core.models import (
+    AdapterContext, AdapterResult, Coverage, Finding, Relationship,
+    ScanInput, ScanRequest, ScanResult,
+)
+from core.service import run_scan
+from export.cyclonedx import export_cyclonedx
+from adapters.cloud_demo import build_demo
+from scripts.generate_web import write_types
+
+ROOT = Path(__file__).resolve().parents[1]
+EVALUATED_AT = datetime(2026, 10, 10, 12, tzinfo=timezone.utc)
+
+
+def write_json(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def observation(source, identity, slot, algorithm, usage, kind, *, parameters=None, owner=None, locator="example location", posture=None):
+    asset = stable_asset_id(source, identity)
+    return Finding(
+        id=stable_finding_id(asset, usage, slot, kind), asset_id=asset,
+        source_type=source, algorithm=algorithm, parameters=parameters or {},
+        usage=usage, evidence_kind=kind, confidence="high", owner=owner,
+        observed_at=EVALUATED_AT if source != "source" else None,
+        posture_issues=posture or [],
+        evidence=[{"file": f"synthetic/{source}-example", "locator": locator,
+                   "detail": f"Synthetic adapter observation: {algorithm} for {usage}; not a real scan."}],
+    )
+
+
+def build_examples() -> dict[str, ScanRequest]:
+    source = [
+        observation("source", "demo:crypto.py:sign", "signing-key", "RSA", "signature", "declared", parameters={"key_bits": 1024, "hash_algorithm": "SHA-1"}, owner="payments", locator="line 12"),
+        observation("source", "demo:crypto.py:token", "signing-key", "Ed25519", "signature", "declared", owner="identity", locator="line 24"),
+        observation("source", "demo:crypto.py:encrypt", "data-cipher", "AES", "encryption", "declared", parameters={"key_bits": 256, "mode": "GCM"}, locator="line 36"),
+        observation("source", "demo:crypto.py:unresolved", "data-cipher", "AES", "encryption", "declared", locator="line 48"),
+    ]
+    network = [
+        observation("pcap", "demo:capture:flow-1", "selected-group", "X25519", "key_establishment", "observed", locator="frame 18; stream 1"),
+        observation("pcap", "demo:capture:flow-1", "offered-hybrid-group", "X25519MLKEM768", "key_establishment", "offered", locator="frame 15; stream 1"),
+        observation("pcap", "demo:capture:flow-1", "authentication", "unknown", "signature", "observed", locator="stream 1; encrypted TLS 1.3 authentication unavailable"),
+    ]
+    cloud = [
+        observation("cloud", "demo:listener:partner-api:443", "configured-key-exchange", "ECDHE", "key_establishment", "configured", parameters={"named_group": "X25519"}, owner="partners", locator="/listeners/0/securityPolicy"),
+        observation("cloud", "demo:certificate:partner-api", "certificate-signature", "RSA", "signature", "configured", parameters={"key_bits": 2048}, owner="partners", locator="/certificates/0/signatureAlgorithm", posture=["Synthetic certificate expiry issue for demonstration; not live AWS state."]),
+        observation("cloud", "demo:kms:payments", "encryption-key", "RSA", "encryption", "configured", parameters={"key_bits": 2048}, owner="payments", locator="/keys/0/KeySpec"),
+    ]
+    relationship = Relationship(source_asset_id=cloud[0].asset_id, target_asset_id=cloud[1].asset_id,
+                                kind="uses_certificate", evidence=[{"file": "synthetic/cloud-example", "locator": "/listeners/0/CertificateArn", "detail": "Explicit synthetic certificate identifier reference"}])
+    requests = {}
+    original_inputs = []
+    fixtures_dir = ROOT / "examples" / "adapters"
+    for source_type, name, findings, unit, assessed, unknown in [
+        ("source", "source-example.json", source, "files", 3, 1),
+        ("pcap", "network-example.json", network, "sessions", 1, 0),
+        ("cloud", "cloud-example.json", cloud, "resources", 3, 0),
+    ]:
+        result = AdapterResult(findings=findings, coverage=[Coverage(source_type=source_type, input_name=name, unit=unit, assessed=assessed, unknown=unknown)],
+                               relationships=[relationship] if source_type == "cloud" else [],
+                               tool_versions={"synthetic-example-builder": "1.0.0"})
+        envelope = NormalizedFixture(fixture_format="quantumtrace.normalized.v1", result=result)
+        write_json(fixtures_dir / name, envelope.model_dump(mode="json"))
+        original_inputs.append(ScanInput(name=name, source_type=source_type, format="normalized", content=envelope.model_dump_json()))
+    requests["scan-original"] = ScanRequest(inputs=original_inputs, evaluated_at=EVALUATED_AT, synthetic=True, label="Synthetic original integration fixtures")
+    modified = requests["scan-original"].model_copy(deep=True)
+    modified.label = "Synthetic modified configuration; negotiation unverified"
+    envelope = NormalizedFixture.model_validate_json(modified.inputs[2].content)
+    envelope.result.findings[0].algorithm = "X25519MLKEM768"
+    envelope.result.findings[0].parameters.named_group = "X25519MLKEM768"
+    envelope.result.findings[0].evidence[0].detail = "Synthetic modified configuration offers a standardized hybrid group; observed negotiation remains unverified."
+    modified.inputs[2].content = envelope.model_dump_json()
+    write_json(fixtures_dir / "cloud-modified-example.json", envelope.model_dump(mode="json"))
+    requests["scan-modified"] = modified
+    partial = requests["scan-original"].model_copy(deep=True)
+    partial.label = "Synthetic partial scan with unsupported source language"
+    partial.inputs.append(ScanInput(name="unsupported.rs", source_type="source", format="raw", content="// unsupported source language"))
+    requests["scan-partial"] = partial
+    requests["scan-source"] = ScanRequest(
+        inputs=[ScanInput(
+            name="synthetic/handoff.py", source_type="source", format="raw",
+            content=(
+                "import os\n"
+                "from cryptography.hazmat.primitives.asymmetric import rsa\n"
+                "from cryptography.hazmat.primitives.ciphers.aead import AESGCM\n"
+                "rsa.generate_private_key(public_exponent=65537, key_size=1024)\n"
+                "key = os.urandom(32)\n"
+                "AESGCM(key)\n"
+                "def unresolved(external_key):\n"
+                "    return AESGCM(external_key)\n"
+            ),
+        )], evaluated_at=EVALUATED_AT, synthetic=True,
+        label="Synthetic source handoff: risky, resistant primitive, unknown parameters",
+    )
+    return requests
+
+
+def build_migration():
+    """Use real cloud parsing for the UI comparison, with no invented negotiation."""
+    change = build_demo()["changes"][0]
+    states = {}
+    for state, directory in (("original", "cloud-posture"), ("upgraded", "tests/fixtures/cloud-modified")):
+        snapshots = {file.name: json.loads(file.read_text()) for file in (ROOT / directory).glob("*.json")}
+        scan = run_scan(ScanRequest(
+            inputs=[ScanInput(name="cloud.json", source_type="cloud", format="raw", content=json.dumps(snapshots))],
+            evaluated_at=EVALUATED_AT, synthetic=True,
+        ))
+        if scan.status != "completed":
+            raise ValueError("Migration fixture scan failed")
+        findings = [f for f in scan.findings if f.asset_id == change["asset_id"]]
+        policy = findings[0].parameters.configured_tls_policy
+        states[state] = {
+            "policy": policy.name, "tls_version": " / ".join(policy.protocols),
+            "quantum_status": findings[0].quantum_status, "wire_status": "unverified",
+            "findings": [finding.model_dump(mode="json") for finding in findings],
+        }
+    return {
+        "asset_id": change["asset_id"], "name": "partner-api-alb",
+        "description": "Synthetic cloud snapshots before and after a listener policy change.",
+        **states,
+        "summary_note": "Only the fixture configuration changed. Negotiation is unverified in both snapshots; the certificate remains unchanged and classical fallback remains available.",
+    }
+
+
+def main():
+    write_types(ROOT)
+    write_json(ROOT / "examples/migration.json", build_migration())
+    for model in (Finding, AdapterContext, AdapterResult, ScanInput, ScanRequest, ScanResult, NormalizedFixture):
+        write_json(ROOT / "schemas" / f"{model.__name__}.schema.json", model.model_json_schema())
+    write_json(ROOT / "schemas" / "openapi.json", app.openapi())
+    for name, request in build_examples().items():
+        write_json(ROOT / "examples" / f"{name}.request.json", request.model_dump(mode="json"))
+        scan = run_scan(request)
+        # Stable metadata for reproducible checked-in examples only; runtime uses UUID and current start time.
+        scan.scan_id = f"example-{name}"
+        scan.started_at = EVALUATED_AT
+        write_json(ROOT / "examples" / f"{name}.response.json", scan.model_dump(mode="json"))
+        if name in {"scan-original", "scan-source"}:
+            write_json(ROOT / "examples" / f"{name}.cdx.json", export_cyclonedx(scan))
+
+
+if __name__ == "__main__":
+    main()

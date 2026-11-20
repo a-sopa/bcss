@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Orders API — an AWS SAM application used to demonstrate migrating to OwnCloud.
+
+Globals:
+  Function:
+    Timeout: 10
+    Runtime: python3.12
+    Environment:
+      Variables:
+        STAGE: prod
+
+Resources:
+  OrdersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: orders/
+      Handler: app.lambda_handler
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref OrdersTable
+          RECEIPTS_BUCKET: orders-receipts
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+        NightlyReport:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+
+  OrdersTable:
+    Type: AWS::Serverless::SimpleTable
