@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Safe Tasks</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Safe Tasks</h1>
+      <form id="add">
+        <input id="owner" placeholder="Your name" maxlength="32" required />
+        <input id="title" placeholder="New task" maxlength="200" required />
+        <button>Add</button>
+      </form>
+      <ul id="tasks"></ul>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
