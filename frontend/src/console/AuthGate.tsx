@@ -134,7 +134,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         setMe(user);
         setState("signed-in");
       },
-      (e) => setState(e instanceof AuthError ? "signed-out" : "signed-in"),
+      (e) => setState("signed-out"),
     );
 
   useEffect(() => {

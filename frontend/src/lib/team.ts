@@ -13,4 +13,4 @@ export const TEAM: Member[] = [
   { name: "Manuel André", github: "manuelamma" },
 ];
 
-export const photoOf = (member: Member) => `/team/${member.github}.webp?v=2`;
+export const photoOf = (member: Member) => `./team/${member.github}.webp?v=2`;
