@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # Hit rate mínima esperada — abaixo disto o sistema entra em autocrítica.
 # Para um plano com confidence=0.95, esperamos pelo menos 0.95 * HIT_RATE_FACTOR.
 HIT_RATE_FACTOR = 0.75          # 75% da confiança do AI como limiar
-MIN_REQUESTS_TO_EVALUATE = 50   # Só avaliar se houver amostras suficientes
+MIN_REQUESTS_TO_EVALUATE = 5    # Limiar ágil para testes, demos e produção
 FEEDBACK_FILE: Path = settings.predictions_file.parent / "feedback.json"
 
 
@@ -86,11 +86,12 @@ class SelfCritic:
     def last_critique(self) -> CritiqueReport | None:
         return self._last_critique
 
-    def evaluate(self, plan: CachePlan) -> CritiqueReport:
+    def evaluate(self, plan: CachePlan, min_requests: int | None = None) -> CritiqueReport:
         """
         Avalia todos os planos HOT e verifica se a hit rate está
         dentro do esperado face à confiança original do AI.
         """
+        req_threshold = min_requests if min_requests is not None else MIN_REQUESTS_TO_EVALUATE
         report = CritiqueReport(
             evaluated_at=datetime.now(timezone.utc).isoformat(),
             overall_passed=True,
@@ -105,24 +106,22 @@ class SelfCritic:
                     continue
 
                 total_requests = rplan.total_hits + rplan.total_misses
-                if total_requests < MIN_REQUESTS_TO_EVALUATE:
+                if total_requests < req_threshold:
                     logger.debug(
                         f"[{region}] '{rplan.event_name}': apenas {total_requests} pedidos "
-                        f"(mínimo {MIN_REQUESTS_TO_EVALUATE} para avaliar)"
+                        f"(mínimo {req_threshold} para avaliar)"
                     )
                     continue
 
                 report.regions_evaluated += 1
 
                 # Obter confiança original do plano (guardada como prioridade máxima)
-                # Fallback para 0.8 se não disponível
                 max_priority = max((e.priority for e in rplan.entries), default=0.8)
                 # Normalizar para 0-1 (a prioridade pode ser > 1 devido ao multiplicador)
                 raw_confidence = min(max_priority / 10.0, 1.0)
                 expected_hit_rate = max(raw_confidence * HIT_RATE_FACTOR, 0.5)
 
                 actual_hit_rate = rplan.overall_hit_rate
-                passed = actual_hit_rate >= expected_hit_rate
 
                 critique = RegionCritique(
                     region=region,
@@ -132,7 +131,7 @@ class SelfCritic:
                     expected_hit_rate=round(expected_hit_rate, 4),
                     total_requests=total_requests,
                     allocated_mb=rplan.total_allocated_mb,
-                    passed=passed,
+                    passed=True,
                 )
 
                 # Avaliar cada serviço individualmente
@@ -161,6 +160,11 @@ class SelfCritic:
                         suggestion=suggestion,
                     ))
 
+                # A região só passa se o hit rate global for suficiente E se nenhum serviço essencial estiver em falha
+                has_underperforming = any(s.verdict == "underperforming" for s in critique.services)
+                passed = (actual_hit_rate >= expected_hit_rate) and not has_underperforming
+                critique.passed = passed
+
                 # Recomendação global para a região
                 if not passed:
                     report.regions_failed += 1
@@ -181,6 +185,10 @@ class SelfCritic:
                     )
 
                 report.critiques.append(critique)
+
+        # Se nenhuma região tinha tráfego para avaliar, não fingir aprovação
+        if report.regions_evaluated == 0:
+            report.overall_passed = False
 
         # Se alguma região falhou, escrever feedback para o AI
         if report.regions_failed > 0:
