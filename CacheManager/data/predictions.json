@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-11-20T14:02:36.697121+00:00",
+  "timestamp_utc": "2026-11-20T14:09:45.792332+00:00",
   "generator_version": "2.2-gemini-ai",
   "dry_run": true,
   "ai_status": {
@@ -22,7 +22,7 @@
       "eu-south"
     ],
     "servers_ready": true,
-    "warmed_at_utc": "2026-11-20T14:02:36.697121+00:00"
+    "warmed_at_utc": "2026-11-20T14:09:45.792332+00:00"
   },
   "deployments": {
     "eu-west": {
@@ -51,12 +51,12 @@
         "active_warmup": {
           "probes_sent": 10,
           "probes_successful": 10,
-          "warmup_duration_ms": 20.12,
+          "warmup_duration_ms": 20.14,
           "runtime_state": "WARM_READY",
           "db_connection_pool": "INITIALIZED"
         },
         "server_readiness": "100% READY",
-        "warmed_at_utc": "2026-11-20T14:02:37.109201+00:00"
+        "warmed_at_utc": "2026-11-20T14:09:48.281877+00:00"
       },
       "self_critic_feedback_adapted": true,
       "cache_directive": {
@@ -110,12 +110,12 @@
         "active_warmup": {
           "probes_sent": 10,
           "probes_successful": 10,
-          "warmup_duration_ms": 20.12,
+          "warmup_duration_ms": 20.18,
           "runtime_state": "WARM_READY",
           "db_connection_pool": "INITIALIZED"
         },
         "server_readiness": "100% READY",
-        "warmed_at_utc": "2026-11-20T14:02:37.137922+00:00"
+        "warmed_at_utc": "2026-11-20T14:09:50.309398+00:00"
       },
       "self_critic_feedback_adapted": false,
       "cache_directive": {
@@ -170,12 +170,12 @@
         "active_warmup": {
           "probes_sent": 10,
           "probes_successful": 10,
-          "warmup_duration_ms": 20.17,
+          "warmup_duration_ms": 20.14,
           "runtime_state": "WARM_READY",
           "db_connection_pool": "INITIALIZED"
         },
         "server_readiness": "100% READY",
-        "warmed_at_utc": "2026-11-20T14:02:37.168781+00:00"
+        "warmed_at_utc": "2026-11-20T14:09:52.339856+00:00"
       },
       "self_critic_feedback_adapted": false,
       "cache_directive": {
@@ -235,12 +235,12 @@
         "active_warmup": {
           "probes_sent": 10,
           "probes_successful": 10,
-          "warmup_duration_ms": 20.13,
+          "warmup_duration_ms": 20.11,
           "runtime_state": "WARM_READY",
           "db_connection_pool": "INITIALIZED"
         },
         "server_readiness": "100% READY",
-        "warmed_at_utc": "2026-11-20T14:02:37.201186+00:00"
+        "warmed_at_utc": "2026-11-20T14:09:54.371141+00:00"
       },
       "self_critic_feedback_adapted": false,
       "cache_directive": {
