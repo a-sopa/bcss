@@ -6,3 +6,5 @@ __pycache__/
 .env.*
 !.env.example
 cache_manager_feed.json
+.claude/
+.vscode/
