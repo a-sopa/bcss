@@ -183,7 +183,7 @@ async def flush_region(region: str):
 async def simulate_hit(cache_key: str):
     """Simulate a cache hit on a key (for demo purposes)."""
     if _warmer:
-        await _warmer.record_hit(cache_key)
+        _warmer.record_hit(cache_key)
     return {"cache_key": cache_key, "event": "hit"}
 
 
@@ -191,7 +191,7 @@ async def simulate_hit(cache_key: str):
 async def simulate_miss(cache_key: str):
     """Simulate a cache miss on a key (for demo purposes)."""
     if _warmer:
-        await _warmer.record_miss(cache_key)
+        _warmer.record_miss(cache_key)
     return {"cache_key": cache_key, "event": "miss"}
 
 

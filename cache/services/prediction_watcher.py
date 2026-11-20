@@ -39,23 +39,38 @@ class PredictionWatcher:
         with self._lock:
             return self._current_predictions
 
+    def _resolve_path(self) -> Path | None:
+        """Finds the active predictions file (configured, or teammate's feed)."""
+        candidates = [
+            self._path,
+            Path("data/predictions.json"),
+            Path("../cache_manager_feed.json"),
+            Path("cache_manager_feed.json"),
+            Path("../scraper-ai/cache_manager_feed.json"),
+        ]
+        for p in candidates:
+            if p.exists():
+                return p
+        return None
+
     def check(self) -> bool:
         """
         Check if the predictions file has changed.
         Returns True if new predictions were loaded.
         """
-        if not self._path.exists():
-            logger.debug(f"Predictions file not found: {self._path}")
+        active_path = self._resolve_path()
+        if not active_path:
+            logger.debug(f"Predictions file not found at {self._path} or known locations")
             return False
 
         try:
-            mtime = self._path.stat().st_mtime
-            if mtime <= self._last_mtime:
+            mtime = active_path.stat().st_mtime
+            if mtime <= self._last_mtime and self._current_predictions is not None:
                 return False  # No change
 
-            raw = self._path.read_text(encoding="utf-8")
+            raw = active_path.read_text(encoding="utf-8")
             data = json.loads(raw)
-            predictions = PredictionFile.model_validate(data)
+            predictions = PredictionFile.from_raw_json(data)
 
             # Avoid re-processing the same prediction batch
             if (

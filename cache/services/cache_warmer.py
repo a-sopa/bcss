@@ -49,7 +49,16 @@ class CacheWarmer:
     def __init__(self):
         self._redis: aioredis.Redis | None = None
         self._plan: CachePlan | None = None
-        self._lock = asyncio.Lock()
+        self._entry_index: dict[str, CacheEntry] = {}
+
+    def _rebuild_index(self):
+        """Builds an O(1) lookup map of cache_key -> CacheEntry."""
+        self._entry_index = {}
+        if self._plan:
+            for plans in self._plan.region_plans.values():
+                for rplan in plans:
+                    for entry in rplan.entries:
+                        self._entry_index[entry.cache_key] = entry
 
     async def connect(self):
         """Create async Redis connection."""
@@ -75,6 +84,7 @@ class CacheWarmer:
         """
         if not self._plan:
             self._plan = new_plan
+            self._rebuild_index()
             return
 
         # Reconciliation / Delta Merge
@@ -100,7 +110,8 @@ class CacheWarmer:
                             new_entry.miss_count = old_entry.miss_count
 
         self._plan = new_plan
-        logger.info("🔄 Cache plan merged incrementally — running caches preserved without disruption")
+        self._rebuild_index()
+        logger.info(f"🔄 Cache plan merged incrementally ({len(self._entry_index)} indexed entries) — running caches preserved without disruption")
 
     @property
     def current_plan(self) -> CachePlan | None:
@@ -133,27 +144,34 @@ class CacheWarmer:
                     await self._check_cooling(rplan, now, event_start)
 
     async def _warm_region_plan(self, rplan: RegionCachePlan):
-        """Pre-warm all entries in a region plan."""
+        """Pre-warm all entries in a region plan using batched pipeline."""
         rplan.status = WarmingStatus.WARMING
         logger.info(f"🔥 Warming cache [{rplan.region}] for '{rplan.event_name}' "
                     f"({len(rplan.entries)} entries)")
 
-        pipeline = self._redis.pipeline()
         warmed = 0
         failed = 0
 
-        for entry in sorted(rplan.entries, key=lambda e: e.priority, reverse=True):
-            try:
-                value = _build_redis_value(entry, rplan.event_name)
-                # Store as Redis hash for rich metadata
-                await self._redis.hset(entry.cache_key, mapping={
-                    k: str(v) for k, v in value.items()
-                })
-                await self._redis.expire(entry.cache_key, entry.ttl_seconds)
-                warmed += 1
-            except Exception as exc:
-                logger.error(f"Failed to warm {entry.cache_key}: {exc}")
-                failed += 1
+        # Efficient batched Redis pipeline execution
+        try:
+            async with self._redis.pipeline(transaction=False) as pipe:
+                for entry in sorted(rplan.entries, key=lambda e: e.priority, reverse=True):
+                    value = _build_redis_value(entry, rplan.event_name)
+                    pipe.hset(entry.cache_key, mapping={k: str(v) for k, v in value.items()})
+                    pipe.expire(entry.cache_key, entry.ttl_seconds)
+                await pipe.execute()
+            warmed = len(rplan.entries)
+        except Exception as exc:
+            logger.warning(f"Batch pipeline warming failed ({exc}), falling back to single entries")
+            for entry in sorted(rplan.entries, key=lambda e: e.priority, reverse=True):
+                try:
+                    value = _build_redis_value(entry, rplan.event_name)
+                    await self._redis.hset(entry.cache_key, mapping={k: str(v) for k, v in value.items()})
+                    await self._redis.expire(entry.cache_key, entry.ttl_seconds)
+                    warmed += 1
+                except Exception as inner_exc:
+                    logger.error(f"Failed to warm {entry.cache_key}: {inner_exc}")
+                    failed += 1
 
         rplan.status = WarmingStatus.HOT
         rplan.warmed_at = datetime.now(timezone.utc)
@@ -171,38 +189,57 @@ class CacheWarmer:
             rplan.status = WarmingStatus.COOLING
             logger.info(f"❄️  Cooling [{rplan.region}] '{rplan.event_name}'")
 
-    async def record_hit(self, cache_key: str):
-        """Record a cache hit for metrics."""
-        if not self._plan:
+    def record_hit(self, cache_key: str):
+        """Record a cache hit for metrics in O(1) time."""
+        if cache_key in self._entry_index:
+            self._entry_index[cache_key].hit_count += 1
             return
-        for plans in self._plan.region_plans.values():
-            for rplan in plans:
-                for entry in rplan.entries:
-                    if entry.cache_key == cache_key:
-                        entry.hit_count += 1
-                        return
+        # Fallback if index was pending
+        if self._plan:
+            for plans in self._plan.region_plans.values():
+                for rplan in plans:
+                    for entry in rplan.entries:
+                        if entry.cache_key == cache_key:
+                            entry.hit_count += 1
+                            self._entry_index[cache_key] = entry
+                            return
 
-    async def record_miss(self, cache_key: str):
-        """Record a cache miss for metrics."""
-        if not self._plan:
+    def record_miss(self, cache_key: str):
+        """Record a cache miss for metrics in O(1) time."""
+        if cache_key in self._entry_index:
+            self._entry_index[cache_key].miss_count += 1
             return
-        for plans in self._plan.region_plans.values():
-            for rplan in plans:
-                for entry in rplan.entries:
-                    if entry.cache_key == cache_key:
-                        entry.miss_count += 1
-                        return
+        # Fallback if index was pending
+        if self._plan:
+            for plans in self._plan.region_plans.values():
+                for rplan in plans:
+                    for entry in rplan.entries:
+                        if entry.cache_key == cache_key:
+                            entry.miss_count += 1
+                            self._entry_index[cache_key] = entry
+                            return
 
     async def flush_region(self, region: str) -> int:
-        """Remove all cache keys for a given region. Returns count deleted."""
+        """Remove all cache keys for a given region safely via async scan_iter."""
         if not self._redis:
             return 0
         pattern = f"cache:{region}:*"
-        keys = await self._redis.keys(pattern)
-        if keys:
-            await self._redis.delete(*keys)
-        logger.info(f"🗑️  Flushed {len(keys)} keys from region [{region}]")
-        return len(keys)
+        count = 0
+        batch = []
+        try:
+            async for key in self._redis.scan_iter(match=pattern, count=100):
+                batch.append(key)
+                if len(batch) >= 500:
+                    await self._redis.delete(*batch)
+                    count += len(batch)
+                    batch = []
+            if batch:
+                await self._redis.delete(*batch)
+                count += len(batch)
+        except Exception as exc:
+            logger.error(f"Error scanning keys for region {region}: {exc}")
+        logger.info(f"🗑️  Flushed {count} keys from region [{region}]")
+        return count
 
     async def force_warm_region(self, region: str) -> int:
         """Force immediate warming for all PENDING plans in a region."""

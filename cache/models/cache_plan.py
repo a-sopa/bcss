@@ -31,7 +31,7 @@ class CacheEntry(BaseModel):
     @property
     def hit_rate(self) -> float:
         total = self.hit_count + self.miss_count
-        return self.hit_count / total if total > 0 else 0.0
+        return round(self.hit_count / total, 4) if total > 0 else 0.0
 
 
 class RegionCachePlan(BaseModel):
