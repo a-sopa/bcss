@@ -23,12 +23,18 @@ import logging
 import math
 import os
 import statistics
+import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+# Ensure scraper-ai directory is in sys.path for local module resolution
+SCRAPER_DIR = Path(__file__).resolve().parent
+if str(SCRAPER_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRAPER_DIR))
 
 import requests
 
@@ -46,18 +52,11 @@ except ImportError:
     holidays = None
 
 # Gemini AI integration
-try:
-    from gemini_analyzer import (
-        analyze_events_with_gemini,
-        export_to_cache_manager,
-        is_gemini_active,
-    )
-except ImportError:
-    from .gemini_analyzer import (
-        analyze_events_with_gemini,
-        export_to_cache_manager,
-        is_gemini_active,
-    )
+from gemini_analyzer import (
+    analyze_events_with_gemini,
+    export_to_cache_manager,
+    is_gemini_active,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("prewarm")
@@ -453,9 +452,11 @@ def collect_manual_events(now):
         f = Path(env_path)
     else:
         base = Path(__file__).resolve().parent
-        f = base / "EventosManuais.json"
+        f = base / "ManualEvents.json"
         if not f.exists():
             f = base / "manual_events.json"
+        if not f.exists():
+            f = base / "EventosManuais.json"
 
     if not f.exists():
         log.warning("Manual Events: File %s not found", f)
