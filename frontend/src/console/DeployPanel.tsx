@@ -266,9 +266,9 @@ export function DeployPanel({ onDeployed }: { onDeployed: () => void }) {
           />
         </button>
         <span>
-          <span className="block text-sm font-medium">Quantum gate</span>
+          <span className="block text-sm font-medium">Security gate</span>
           <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-            Block the deployment if QuantumTrace finds quantum-vulnerable cryptography.
+            Block the deployment if the code has critical vulnerabilities or quantum-vulnerable cryptography.
           </span>
         </span>
       </label>

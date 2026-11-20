@@ -1,6 +1,6 @@
 """OwnCloud control plane: host and run apps, with QuantumTrace analysis on every deployment.
 
-Deploy pipeline: upload → migration analysis → QuantumTrace scan (optional gate) → snapshot → build →
+Deploy pipeline: upload → migration analysis → QuantumTrace scan + security gate (optional) → snapshot → build →
 impacted tests → canary (5% of traffic, statistical comparison) → promote, or roll back with a root-cause report.
 Every step is recorded in a shared event feed that other AI modules can read and write.
 Every route except sign-in, sign-up and a minimal health check needs a signed-in user or an access token
@@ -236,6 +236,29 @@ def _record_incident(app_id: str, report: dict[str, Any]) -> None:
     store.add_event(app_id, "incident", "high", f"{title} (v{report['version']})", report["summary"])
 
 
+def _critical_code_findings(app_id: str) -> list[dict[str, Any]]:
+    """Critical security-review findings (injection, eval, leaked keys…) across the uploaded source."""
+    findings = []
+    for item in _list_sources(app_id):
+        content = _read_text(source_dir(app_id) / item["path"])
+        if content is not None:
+            findings += [f for f in code_review.review(item["path"], content) if f["severity"] == "critical"]
+    return [{"file": f["file"], "line": f["line"], "title": f["title"]} for f in findings]
+
+
+def _gate_reason(vulnerabilities: list[dict[str, Any]], quantum_critical: int, unavailable: bool) -> str:
+    parts = []
+    if vulnerabilities:
+        titles = list(dict.fromkeys(f["title"] for f in vulnerabilities))
+        listed = ", ".join(titles[:4]) + (", …" if len(titles) > 4 else "")
+        parts.append(f"{len(vulnerabilities)} critical vulnerabilit{'y' if len(vulnerabilities) == 1 else 'ies'} ({listed})")
+    if quantum_critical:
+        parts.append(f"{quantum_critical} quantum-vulnerable finding(s)")
+    if not parts and unavailable:
+        return "Deployment blocked: the code could not be analysed."
+    return "Deployment blocked: " + " and ".join(parts) + ". Open Code to see and fix them."
+
+
 def _deploy(app_id: str) -> None:
     record = store.get_app(app_id)
     if record is None:
@@ -266,12 +289,13 @@ def _deploy(app_id: str) -> None:
             store.add_event(app_id, "quantum", "medium", "Quantum scan unavailable", str(exc))
         store.update_app(app_id, scan_summary=summary)
         critical = summary.get("tiers", {}).get("critical", 0)
-        if record["enforce_gate"] and (critical or summary["status"] == "unavailable"):
-            reason = (f"Deployment blocked: {critical} quantum-vulnerable finding(s)." if critical
-                      else "Deployment blocked: the code could not be analysed.")
-            store.update_app(app_id, status="blocked" if not previous else "running", detail=reason)
-            store.add_event(app_id, "gate", "high", "Deployment blocked by quantum gate", reason)
-            return finish("blocked", detail={"reason": reason})
+        if record["enforce_gate"]:
+            vulnerabilities = _critical_code_findings(app_id)
+            if critical or vulnerabilities or summary["status"] == "unavailable":
+                reason = _gate_reason(vulnerabilities, critical, summary["status"] == "unavailable")
+                store.update_app(app_id, status="blocked" if not previous else "running", detail=reason)
+                store.add_event(app_id, "gate", "high", "Deployment blocked by security gate", reason)
+                return finish("blocked", detail={"reason": reason, "vulnerabilities": vulnerabilities[:20]})
 
         # Snapshot this version and work out what changed since the running one.
         snapshot = pipeline.snapshot(app_dir(app_id), root, version)
