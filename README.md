@@ -401,7 +401,7 @@ hackaton-project/
 ## 👥 Babuja Cloud Secure Systems (BCSS) Team
 *Developed for Hackathon 2026.*
 - Afonso Sopa
-- Manuel André
-- Diogo Pinto
 - Diogo Osório
+- Diogo Pinto
 - Francisco Pereira
+- Manuel André

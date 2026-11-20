@@ -6,11 +6,11 @@ export type Member = {
 };
 
 export const TEAM: Member[] = [
-  { name: "Diogo Osório", github: "dioooogooo" },
   { name: "Afonso Sopa", github: "a-sopa" },
-  { name: "Manuel André", github: "manuelamma" },
+  { name: "Diogo Osório", github: "dioooogooo" },
   { name: "Diogo Pinto", github: "diogofpinto" },
   { name: "Francisco Pereira", github: "franciscoppereira256" },
+  { name: "Manuel André", github: "manuelamma" },
 ];
 
-export const photoOf = (member: Member) => `/team/${member.github}.webp`;
+export const photoOf = (member: Member) => `/team/${member.github}.webp?v=2`;
