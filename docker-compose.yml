@@ -71,7 +71,7 @@ services:
   # ==============================================================================
   frontend:
     build:
-      context: ./JunctionX/web
+      context: ./QuantumTrace/web
       dockerfile: Dockerfile
     container_name: hackathon-frontend
     restart: unless-stopped
@@ -91,7 +91,7 @@ services:
   # ==============================================================================
   # QuantumTrace: post-quantum cryptography analysis. Internal only: not published on the host.
   quantumtrace:
-    build: ./JunctionX
+    build: ./QuantumTrace
     restart: unless-stopped
     read_only: true
     tmpfs: [/tmp]

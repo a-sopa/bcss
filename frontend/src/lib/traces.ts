@@ -11,20 +11,18 @@ export type Point = { x: number; y: number };
 export type Trace = {
   id: string;
   d: string;
-  /** Lines on the axes and diagonals are the main ones; the rest are finer. */
+  /** Lines on the axes are the main ones; the rest are finer. */
   main: boolean;
   delay: number;
 };
 
 export const VIEW = { w: 1600, h: 900 };
 
-/** Custom cloud silhouette, originally centred on (600, 293), drawn at CLOUD_SCALE. */
-export const CLOUD_PATH =
-  "M515 382C478 382 450 356 450 322C450 291 473 267 504 263C514 229 550 204 594 204C635 204 668 229 680 262C684 261.4 687 261 691 261C724 261 750 288 750 322C750 356 722 382 688 382Z";
-
-const CLOUD_SCALE = 0.65;
 export const CLOUD_CENTER: Point = { x: 0, y: -50 };
-export const CLOUD_TRANSFORM = `translate(${CLOUD_CENTER.x} ${CLOUD_CENTER.y}) scale(${CLOUD_SCALE}) translate(-600 -293)`;
+
+/** The BCSS logo (see lib/logo.ts) centred on CLOUD_CENTER, about 230 units wide. */
+const LOGO_SCALE = 0.48;
+export const LOGO_TRANSFORM = `translate(${CLOUD_CENTER.x} ${CLOUD_CENTER.y}) scale(${LOGO_SCALE}) translate(-515 -272)`;
 
 /** The typed title sits below the cloud; traces pass underneath it. */
 export const TITLE_Y = 40;
@@ -62,11 +60,12 @@ function roundedPath(points: Point[], radius: number): string {
 }
 
 /**
- * Thirty-two traces, one every 11.25°. Those on the axes and diagonals run straight;
- * the ones in between leave radially, then turn parallel to the nearest axis.
+ * Traces every 11.25°, skipping the four diagonals. Those on the axes run straight;
+ * the rest leave radially, then turn parallel to the nearest axis.
  */
 export function buildTraces(): Trace[] {
-  return Array.from({ length: COUNT }, (_, i) => {
+  const indices = Array.from({ length: COUNT }, (_, i) => i).filter((i) => i % 8 !== 4);
+  return indices.map((i) => {
     const a = (i / COUNT) * Math.PI * 2;
     const dir = { x: Math.cos(a), y: Math.sin(a) };
     const start = { x: CLOUD_CENTER.x + dir.x * 70, y: CLOUD_CENTER.y + dir.y * 38 };
@@ -92,7 +91,7 @@ export function buildTraces(): Trace[] {
       id: `t${i}`,
       d: roundedPath(points, CORNER),
       main,
-      delay: i * 0.04,
+      delay: 0, // every trace grows at once
     };
   });
 }

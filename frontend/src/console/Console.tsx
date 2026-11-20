@@ -134,7 +134,6 @@ export function Console() {
           <div className="flex items-center gap-5">
             <div className="hidden items-center gap-4 sm:flex">
               <HealthDot label="Docker" ok={health.data?.docker} />
-              <HealthDot label="QuantumTrace" ok={health.data?.quantumtrace} />
             </div>
             <a href="#/console/settings" className="flex items-center gap-2 text-[13px] text-muted transition-colors hover:text-ink">
               <span className="grid size-6 place-items-center rounded-full bg-azure/20 font-mono text-[11px] uppercase text-azure" aria-hidden="true">

@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } from "motion/react";
-import { Button } from "../components/ui";
+import { ArrowIcon } from "../components/ui";
 
 const STARS = 12;
 const STAR_PATH = "M0 -10L2.35 -3.24L9.51 -3.09L3.8 1.24L5.88 8.09L0 4L-5.88 8.09L-3.8 1.24L-9.51 -3.09L-2.35 -3.24Z";
@@ -91,7 +91,7 @@ export function MadeInEurope() {
           </defs>
         </svg>
 
-        <div className="relative aspect-square w-[min(92vw,82svh)]">
+        <div className="relative aspect-square w-[min(94vw,88svh)]">
           <motion.div
             className="absolute inset-[6%] rounded-full bg-[radial-gradient(circle,rgb(255_204_0/0.12),transparent_68%)]"
             style={{ opacity: halo }}
@@ -106,7 +106,7 @@ export function MadeInEurope() {
           <div className="absolute inset-0 flex flex-col items-center justify-center px-[14%] text-center">
             <h2
               id="europe-intro-title"
-              className="font-tech text-[clamp(1.8rem,5.8vmin,3.8rem)] leading-[1.05] font-semibold tracking-[-0.01em] uppercase"
+              className="font-tech text-[clamp(2rem,6.6vmin,4.6rem)] leading-[1.05] font-semibold tracking-[-0.01em] uppercase"
             >
               <motion.span className="block" style={{ opacity: line1, y: line1y }}>
                 Made in <span className="text-gold">Europe</span>,
@@ -115,8 +115,11 @@ export function MadeInEurope() {
                 for Europe.
               </motion.span>
             </h2>
-            <motion.div className="mt-[clamp(1.25rem,4vmin,2.5rem)]" style={{ opacity: cta, scale: ctaScale, pointerEvents: ctaEvents }}>
-              <Button href="#/console">Get Started</Button>
+            <motion.div className="mt-[clamp(1.5rem,5vmin,3rem)]" style={{ opacity: cta, scale: ctaScale, pointerEvents: ctaEvents }}>
+              <a href="#/console" className="europe-cta">
+                <span className="relative">Get Started</span>
+                <ArrowIcon className="relative size-5" />
+              </a>
             </motion.div>
           </div>
         </div>

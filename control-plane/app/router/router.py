@@ -6,12 +6,18 @@
 - Edge cache per region (logical edge locations; one router hosts them all): only anonymous GET/HEAD
   responses that are explicitly cacheable, plus static assets. Predictive prefetch fills a region's cache
   with the pages its visitors are likely to request next, and re-warms popular pages before they expire.
+- Event preheat (/config/preheat.json, from the forecast service): before a predicted traffic peak in a region,
+  that region's cache is filled with the pages visitors are likely to open, and the app is warmed up.
+- Security (/config/security.json, from the threat service): decoys on paths no real app serves (/.env,
+  /.git/config, cloud credentials, wp-login…), which hand out canary credentials; any later request carrying a
+  canary is caught; blocked IPs get 403. Decoy hits are reported to the control plane as threat events.
 - Writes everything to /tmp/metrics.json every second; the control plane reads it through the Docker API.
 Standard library only.
 """
 
 import hashlib
 import http.client
+import ipaddress
 import json
 import os
 import random
@@ -20,9 +26,11 @@ import threading
 import time
 from collections import Counter, OrderedDict, defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit
 
 CONFIG = os.environ.get("ROUTER_CONFIG", "/config/routes.json")
+SECURITY = os.path.join(os.path.dirname(CONFIG), "security.json")
+PREHEAT = os.path.join(os.path.dirname(CONFIG), "preheat.json")
 METRICS = os.environ.get("ROUTER_METRICS", "/tmp/metrics.json")
 BUCKET_SECONDS = 5
 KEEP_BUCKETS = 180  # 15 minutes
@@ -38,6 +46,10 @@ REGION_PATTERN = re.compile(r"^[a-z][a-z-]{1,30}$")
 LANGUAGE_REGIONS = {"pt": "lisbon", "es": "madrid", "fr": "paris", "de": "frankfurt", "it": "milan", "nl": "amsterdam",
                     "pl": "warsaw", "en": "dublin"}
 LOAD_TEST_HEADER = "x-owncloud-load-test"
+# Attack simulations run inside this container (docker exec) and name their client with this header. It is only
+# honoured from the loopback address, which apps and visitors cannot use.
+SIMULATED_CLIENT_HEADER = "x-owncloud-simulated-client"
+CANARY_SCAN_BYTES = 64 * 1024
 
 
 def now() -> float:
@@ -52,16 +64,17 @@ def sanitise(path: str) -> str:
 
 
 class Config:
-    def __init__(self) -> None:
+    def __init__(self, path: str = CONFIG, defaults: dict | None = None) -> None:
+        self.path = path
         self.mtime = 0.0
-        self.data = {"backends": [], "cache": True, "probe_paths": ["/"], "probe_interval": 2}
+        self.data = defaults if defaults is not None else {"backends": [], "cache": True, "probe_paths": ["/"], "probe_interval": 2}
         self.lock = threading.Lock()
 
     def current(self) -> dict:
         try:
-            mtime = os.stat(CONFIG).st_mtime
+            mtime = os.stat(self.path).st_mtime
             if mtime != self.mtime:
-                with open(CONFIG) as handle:
+                with open(self.path) as handle:
                     data = json.load(handle)
                 with self.lock:
                     self.data, self.mtime = {**self.data, **data}, mtime
@@ -225,8 +238,188 @@ class EdgeCache:
             }
 
 
+DEFAULT_CANARIES = {"api_key": "sk_live_owncloud_unconfigured", "aws_access_key_id": "AKIAOWNCLOUDCANARY00",
+                    "aws_secret_access_key": "unconfigured-canary-secret", "jwt_secret": "unconfigured-canary-jwt"}
+LOGIN_PAGE = (b"<!doctype html><html><head><title>Log In</title></head><body><form method=\"post\">"
+              b"<label>Username <input name=\"log\"></label><label>Password <input type=\"password\" name=\"pwd\"></label>"
+              b"<button>Log In</button></form></body></html>")
+
+
+def decoy_kind(path: str) -> str | None:
+    """The decoy that answers this path, or None. Only paths a real app never serves on purpose."""
+    p = unquote(urlsplit(path).path).lower().rstrip("/") or "/"
+    if p in ("/.env", "/.env.local", "/.env.production", "/.env.backup", "/app/.env", "/config/.env", "/api/.env"):
+        return "env-file"
+    if p.startswith("/.git/") or p == "/.git":
+        return "git-config"
+    if p in ("/.aws/credentials", "/.aws/config", "/.docker/config.json", "/.npmrc"):
+        return "cloud-credentials"
+    if p.startswith("/latest/meta-data") or p == "/latest/api/token" or p.startswith("/computemetadata/v1"):
+        return "imds"
+    if p in ("/actuator/env", "/actuator/heapdump", "/actuator/configprops"):
+        return "actuator"
+    if p in ("/wp-login.php", "/xmlrpc.php") or p.startswith("/wp-admin"):
+        return "wp-login"
+    if p.startswith(("/phpmyadmin", "/pma", "/myadmin")):
+        return "phpmyadmin"
+    if p == "/server-status":
+        return "server-status"
+    if p.endswith(".sql") and p.count("/") <= 2:
+        return "db-dump"
+    if p.endswith((".bak", ".old", ".swp")) or p in ("/backup.zip", "/backup.tar.gz", "/wp-config.php"):
+        return "backup"
+    return None
+
+
+def decoy_response(kind: str, path: str, canaries: dict, dump: str) -> tuple[int, str, bytes]:
+    """(status, content type, body): believable bait that carries this app's canary credentials."""
+    c = {**DEFAULT_CANARIES, **{k: v for k, v in canaries.items() if v}}
+    if kind in ("env-file", "backup"):
+        body = (f"APP_ENV=production\nAPP_DEBUG=false\nDB_HOST=db.internal\nDB_USER=app\nDB_PASSWORD={c['jwt_secret'][:16]}\n"
+                f"AWS_ACCESS_KEY_ID={c['aws_access_key_id']}\nAWS_SECRET_ACCESS_KEY={c['aws_secret_access_key']}\n"
+                f"AWS_DEFAULT_REGION=eu-west-1\nSTRIPE_SECRET_KEY={c['api_key']}\nJWT_SECRET={c['jwt_secret']}\n")
+        return 200, "text/plain", body.encode()
+    if kind == "git-config":
+        if path.lower().rstrip("/").endswith("head"):
+            return 200, "text/plain", b"ref: refs/heads/main\n"
+        body = ("[core]\n\trepositoryformatversion = 0\n\tbare = false\n[remote \"origin\"]\n"
+                f"\turl = https://deploy:{c['api_key']}@git.internal/platform/app.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
+        return 200, "text/plain", body.encode()
+    if kind == "cloud-credentials":
+        body = (f"[default]\naws_access_key_id = {c['aws_access_key_id']}\naws_secret_access_key = {c['aws_secret_access_key']}\n"
+                "region = eu-west-1\n")
+        return 200, "text/plain", body.encode()
+    if kind == "imds":
+        p = urlsplit(path).path.rstrip("/")
+        if p.endswith("security-credentials"):
+            return 200, "text/plain", b"app-instance-role"
+        if "security-credentials/" in p:
+            body = json.dumps({"Code": "Success", "Type": "AWS-HMAC", "AccessKeyId": c["aws_access_key_id"],
+                               "SecretAccessKey": c["aws_secret_access_key"], "Token": c["jwt_secret"],
+                               "Expiration": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now() + 21600))})
+            return 200, "application/json", body.encode()
+        return 200, "text/plain", b"ami-id\nhostname\niam/\ninstance-id\nlocal-ipv4\n"
+    if kind == "actuator":
+        body = json.dumps({"activeProfiles": ["prod"], "propertySources": [{"name": "systemEnvironment", "properties": {
+            "AWS_ACCESS_KEY_ID": {"value": c["aws_access_key_id"]}, "AWS_SECRET_ACCESS_KEY": {"value": c["aws_secret_access_key"]},
+            "PAYMENT_API_KEY": {"value": c["api_key"]}}}]})
+        return 200, "application/json", body.encode()
+    if kind in ("wp-login", "phpmyadmin"):
+        return 200, "text/html; charset=utf-8", LOGIN_PAGE
+    if kind == "server-status":
+        return 200, "text/plain", b"Apache Server Status\nServer Version: Apache/2.4.41 (Ubuntu)\nTotal accesses: 18342\n"
+    if kind == "db-dump":
+        return 200, "application/sql", (dump or "-- empty dump\n").encode()
+    return 404, "text/plain", b"Not found"
+
+
+def credentials_of(body: bytes | None) -> tuple[str | None, str | None]:
+    """Username and password an attacker posted to a decoy login form."""
+    if not body:
+        return None, None
+    try:
+        text = body[:4096].decode("utf-8", errors="replace")
+        fields = dict(parse_qsl(text)) if "=" in text and not text.lstrip().startswith("{") else json.loads(text)
+    except ValueError:
+        return None, None
+    if not isinstance(fields, dict):
+        return None, None
+    user = next((str(fields[k]) for k in ("log", "username", "user", "pma_username", "email", "login") if k in fields), None)
+    password = next((str(fields[k]) for k in ("pwd", "password", "pass", "pma_password", "passwd") if k in fields), None)
+    return (user[:128] if user else None), (password[:128] if password else None)
+
+
+class Security:
+    """Decoys, canaries and blocked IPs from security.json; threat events for the control plane."""
+
+    def __init__(self) -> None:
+        self.config = Config(SECURITY, {"decoys": True, "blocked": [], "canaries": {}, "honey_dump": ""})
+        self.events: deque[dict] = deque(maxlen=500)
+        self.seq = 0
+        self.counts: Counter = Counter()
+        self.last_blocked: dict[str, float] = {}
+        self.lock = threading.Lock()
+
+    def blocked(self, ip: str) -> bool:
+        return ip in set(self.config.current().get("blocked") or [])
+
+    def canaries(self) -> dict[str, str]:
+        values = self.config.current().get("canaries") or {}
+        return {name: value for name, value in values.items() if isinstance(value, str) and len(value) >= 12}
+
+    def canary_in(self, path: str, headers, body: bytes | None) -> str | None:
+        """The canary value carried by this request (query, any header or the body), if any."""
+        values = list(self.canaries().values())
+        if not values:
+            return None
+        haystack = unquote(path) + "\n" + "\n".join(f"{k}: {v}" for k, v in headers.items())
+        if body:
+            haystack += "\n" + body[:CANARY_SCAN_BYTES].decode("utf-8", errors="replace")
+        return next((value for value in values if value in haystack), None)
+
+    def record(self, ip: str, method: str, path: str, user_agent: str, kind: str, status: int,
+               username: str | None = None, password: str | None = None, canary: str | None = None) -> None:
+        with self.lock:
+            if kind == "blocked":  # a blocked client hammering the app: one event per minute is enough
+                if now() - self.last_blocked.get(ip, 0) < 60:
+                    self.counts["blocked"] += 1
+                    return
+                self.last_blocked[ip] = now()
+            self.seq += 1
+            self.counts[kind] += 1
+            self.events.append({"seq": self.seq, "t": round(now(), 3), "ip": ip, "method": method, "path": sanitise(path)[:300],
+                                "user_agent": user_agent[:200], "kind": kind, "status": status, "username": username,
+                                "password": password, "canary": canary})
+
+    def snapshot(self) -> dict:
+        current = self.config.current()
+        with self.lock:
+            return {"seq": self.seq, "events": list(self.events), "counts": dict(self.counts),
+                    "decoys": bool(current.get("decoys", True)), "blocked": len(current.get("blocked") or []),
+                    "canaries": bool(self.canaries())}
+
+
+class Preheat:
+    """Regions the forecast service expects a traffic peak in, and what warming them achieved."""
+
+    def __init__(self) -> None:
+        self.config = Config(PREHEAT, {"regions": {}})
+        self.results: dict[str, Counter] = defaultdict(Counter)
+        self.last: dict[str, float] = {}
+        self.lock = threading.Lock()
+
+    def active(self) -> dict[str, dict]:
+        regions = self.config.current().get("regions") or {}
+        return {region: plan for region, plan in regions.items()
+                if REGION_PATTERN.match(region) and float(plan.get("until", 0)) > now()}
+
+    def result(self, region: str, outcome: str) -> None:
+        with self.lock:
+            self.results[region][outcome] += 1
+            self.last[region] = now()
+
+    def snapshot(self) -> dict:
+        active = self.active()
+        with self.lock:
+            return {region: {**dict(self.results[region]), "last_at": self.last.get(region), "active": region in active,
+                             "event": (active.get(region) or {}).get("event"), "until": (active.get(region) or {}).get("until")}
+                    for region in set(self.results) | set(active)}
+
+
 config, stats, traffic, cache = Config(), Stats(), Traffic(), EdgeCache()
-prefetch_queue: deque[tuple[str, str]] = deque(maxlen=200)
+security, preheat = Security(), Preheat()
+prefetch_queue: deque[tuple[str, str, bool]] = deque(maxlen=400)
+
+
+def client_ip(handler: BaseHTTPRequestHandler) -> str:
+    address = handler.client_address[0]
+    simulated = (handler.headers.get(SIMULATED_CLIENT_HEADER) or "").strip()
+    if address == "127.0.0.1" and simulated:
+        try:
+            return str(ipaddress.ip_address(simulated))
+        except ValueError:
+            pass
+    return address
 
 
 def region_of(headers) -> str:
@@ -284,11 +477,27 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(413, {"content-type": "text/plain"}, b"Too large", {})
         body = self.rfile.read(length) if length else None
 
+        ip, user_agent = client_ip(self), self.headers.get("user-agent", "")
+        if security.blocked(ip):
+            security.record(ip, self.command, self.path, user_agent, "blocked", 403)
+            return self._reply(403, {"content-type": "text/plain"}, b"Forbidden", {})
+        canary = security.canary_in(self.path, self.headers, body)
+        if canary:
+            security.record(ip, self.command, self.path, user_agent, "canary-use", 200, canary=canary)
+        kind = decoy_kind(self.path) if security.config.current().get("decoys", True) else None
+        if kind:
+            username, password = credentials_of(body) if self.command == "POST" else (None, None)
+            event = "credential-post" if username or password else kind
+            current = security.config.current()
+            status, content_type, data = decoy_response(kind, self.path, current.get("canaries") or {}, current.get("honey_dump") or "")
+            security.record(ip, self.command, self.path, user_agent, event, status, username, password)
+            return self._reply(status, {"content-type": content_type, "cache-control": "no-store"}, data, {})
+
         region = region_of(self.headers)
         load_test = self.headers.get(LOAD_TEST_HEADER) == "1"
         anonymous = not self.headers.get("authorization") and not self.headers.get("cookie")
         cacheable = self.command in ("GET", "HEAD") and anonymous and config.current().get("cache", True)
-        client = hashlib.sha256(f"{self.client_address[0]}|{self.headers.get('user-agent', '')}".encode()).hexdigest()[:12]
+        client = hashlib.sha256(f"{ip}|{user_agent}".encode()).hexdigest()[:12]
 
         entry = cache.get(region, self.path) if cacheable else None
         if entry:
@@ -298,9 +507,9 @@ class Handler(BaseHTTPRequestHandler):
             backend = config.pick()
             if backend is None:
                 return self._reply(503, {"content-type": "text/plain"}, b"No version is running", {})
-            headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
+            headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP and k.lower() != SIMULATED_CLIENT_HEADER}
             headers["Host"] = self.headers.get("host", "app")
-            headers["X-Forwarded-For"] = self.client_address[0]
+            headers["X-Forwarded-For"] = ip
             headers["X-Forwarded-Proto"] = "http"
             status, headers, data = forward(backend, self.command, self.path, headers, body)
             backend_name = backend["name"]
@@ -323,13 +532,24 @@ class Handler(BaseHTTPRequestHandler):
         if cacheable:
             for path in predicted:
                 if not cache.has(region, path):
-                    prefetch_queue.append((region, path))
+                    prefetch_queue.append((region, path, False))
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _handle
 
 
+def preheat_paths(region: str, plan: dict) -> list[str]:
+    """What to warm before a region's predicted peak: the forecast's hints, the region's own popular pages and,
+    for a region with no visitors yet, the pages popular everywhere else."""
+    since = now() - 3600
+    everywhere = Counter(e["path"] for e in traffic.snapshot()["log"] if e["t"] >= since and e["method"] == "GET" and e["status"] < 400)
+    hints = [p for p in plan.get("paths") or [] if isinstance(p, str) and p.startswith("/")]
+    paths = hints + traffic.popular(region, since=since, limit=15) + [p for p, _ in everywhere.most_common(15)]
+    return list(dict.fromkeys(paths or ["/"]))[:25]
+
+
 def prefetcher() -> None:
-    """Fill edge caches ahead of demand: predicted next pages and popular pages about to expire."""
+    """Fill edge caches ahead of demand: predicted next pages, popular pages about to expire, and whole regions
+    before a predicted event (preheat)."""
     last_warm = 0.0
     while True:
         try:
@@ -339,11 +559,15 @@ def prefetcher() -> None:
                 for region in regions:
                     for path in traffic.popular(region, since=now() - 300, limit=8):
                         if not cache.has(region, path, margin=15) and len(prefetch_queue) < 150:
-                            prefetch_queue.append((region, path))
+                            prefetch_queue.append((region, path, False))
+                for region, plan in preheat.active().items():
+                    for path in preheat_paths(region, plan):
+                        if not cache.has(region, path, margin=30) and len(prefetch_queue) < 350:
+                            prefetch_queue.append((region, path, True))
             if not prefetch_queue:
                 time.sleep(0.05)
                 continue
-            region, path = prefetch_queue.popleft()
+            region, path, preheating = prefetch_queue.popleft()
             backend = config.stable()
             if backend is None or cache.has(region, path) or not config.current().get("cache", True):
                 continue
@@ -351,6 +575,9 @@ def prefetcher() -> None:
             ttl = cache.ttl(path, status, headers)
             if ttl:
                 cache.put(region, path, status, headers, data, ttl, prefetched=True)
+            if preheating:
+                # Uncacheable pages still warm the app itself (code paths, connection pools, its own caches).
+                preheat.result(region, "failed" if status >= 500 else "cached" if ttl else "warmed")
             time.sleep(0.05)  # at most ~20 prefetches per second
         except Exception:
             time.sleep(1)
@@ -372,7 +599,8 @@ def prober() -> None:
 def writer() -> None:
     while True:
         snapshot = {"time": now(), "bucket_seconds": BUCKET_SECONDS, "routes": config.current(), "backends": stats.snapshot(),
-                    "cache": cache.snapshot(), **traffic.snapshot()}
+                    "cache": cache.snapshot(), "security": security.snapshot(), "preheat": preheat.snapshot(),
+                    **traffic.snapshot()}
         temporary = METRICS + ".tmp"
         with open(temporary, "w") as handle:
             json.dump(snapshot, handle)

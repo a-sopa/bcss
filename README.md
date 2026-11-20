@@ -16,7 +16,15 @@
 
 **Babuja Cloud Secure Systems (BCSS)** is an enterprise-grade unified cloud resilience platform designed to tackle two of the most critical vulnerabilities of digital businesses: **uncontrolled cloud and paid API costs triggered by reactive traffic spikes**, and **severe vulnerability to advanced cyberattacks with prolonged intruder dwell-time**.
 
-By harmonizing **Predictive AI (Google Gemini 2.5 Flash)**, **Active Deception Honeypots with Stolen Token GPS Tracking**, **Post-Quantum Cryptography (PQC) Scanners**, and **Self-Healing CI/CD Pipelines with Statistical Z-score Canary Rollbacks**, BCSS transforms brittle and reactive cloud architectures into a self-governing, highly efficient defense perimeter.
+| Módulo | Área / Desafio | Descrição |
+| :--- | :--- | :--- |
+| **[`scraper-ai`](./scraper-ai)** | **Previsão de Tráfego & IA** | Ingestão de eventos reais (Futebol, Ticketmaster, PredictHQ, Manual, Feriados) com inferência semântica via **Google Gemini 2.5 Flash** e loop fechado de retroalimentação. |
+| **[`server-preheat`](./server-preheat)** | **Dimensionamento Cloud** | Motor desacoplado de pré-aquecimento de capacidade cloud (Provisioned Concurrency AWS Lambda / Instâncias) e disparo de sondas sintéticas paralelas (JIT, DB pools e runtime). |
+| **[`CacheManager`](./CacheManager)** | **Eficiência de Rede & Latência** | Serviço de cache preditivo inteligente com FastAPI e Redis, cálculo dinâmico de score multi-fator de prioridade e motor de auditoria contínua (*Self-Critic*). |
+| **[`cloud_honeypot_ai`](./cloud_honeypot_ai)** | **Segurança & Eficiência Cloud + IA** | **"A Armadilha para Hackers" (Honeypot)** com análise comportamental por IA (MITRE ATT&CK), defesa perimetral automatizada (AWS NACL / SG / iptables), cofre forense criptográfico imutável (AES-256-GCM + blockchain SHA-256) e **Active Deception** (GPS Lógico de chaves API roubadas, Prompt Injection Defensivo e Beacons de Telemetria). |
+| **[`bridge`](./bridge)** | **Orquestração & Benchmarking** | Ferramenta de avaliação arquitetural (`benchmark_comparison.py`) e orquestrador de relay bidirecional (`orchestrator.py`). |
+| **[`QuantumTrace`](./QuantumTrace)** | **Criptografia & Postura Cloud** | QuantumTrace: Auditoria estática e dinâmica de ativos criptográficos (KMS, TLS, CBOM CycloneDX 1.6), prontidão pós-quântica (PQC) e dashboard React/Vite. |
+| **[`control-plane`](./control-plane) + [`frontend`](./frontend)** | **OwnCloud — Cloud europeia** | Cloud que corre apps em contentores Docker, com consola web, editor de código com análise de segurança, Smart CI/CD, canary com rollback automático, migração desde AWS e extensão VS Code (ver secção OwnCloud abaixo). |
 
 ---
 
@@ -260,16 +268,74 @@ Simulates automated bot attacks, canary key exfiltration, and auto-generated fir
 python3 -m cloud_honeypot_ai.run_honeypot demo
 ```
 
-### 3. Full Security Test Suite
-```bash
-python3 -m unittest discover -s cloud_honeypot_ai/tests -v
-```
-*(40 rigorous unit tests validating MITRE ATT&CK categorization, AES-GCM vault encryption, and GPS canary tracking).*
+151 attacks against the running stack (`test_attacks.py`, `test_users.py`), using temporary accounts it creates and
+removes: cross-user access to every app route, privilege escalation, role mass assignment, token scope and
+cross-user abuse, revoked/expired/forged tokens, disabled accounts, password changes, username enumeration (answers
+and timing), cookie tossing, session fixation, unauthenticated access, forged cookies, session replay after sign-out, CSRF
+from other origins and from hosted apps, DNS rebinding, open redirects, SQL / command / Dockerfile / environment
+injection, path traversal (encoded, absolute, Windows, NUL byte), zip slip, zip bombs, oversized bodies, YAML bombs,
+analyzer DoS, secret disclosure, security headers, dotfiles, exposed internal ports, hosted-app network isolation and
+sign-in brute force. The last test locks this machine out of *new* sign-ins for 5 minutes (restart the control plane to reset).
+
+Known limits: the control plane has full access to Docker through its socket, so every user can run code on this
+machine inside resource-limited containers (that is what a cloud does — keep sign-up off unless you trust who can
+reach the console); hosted apps are served over plain HTTP; they can still reach the internet and services on the host
+bound to `0.0.0.0`; and for a public deployment, serve the console and the apps on separate domains with HTTPS.
+
+### Layout
+
+| Path | What |
+| --- | --- |
+| `control-plane/` | FastAPI + Docker SDK. `app/main.py` (API and pipeline), `security.py` (auth, CSRF, headers), `code_review.py` (security analyzer), `runtime.py` (build/run), `quantum.py` (QuantumTrace client), `migration.py` + `aws_sources.py` (AWS migration), `store.py` (SQLite) |
+| `control-plane/app/router/` | Per-app router (traffic split, metrics, edge cache, prefetch) and the load generator |
+| `control-plane/app/{pipeline,canary,rca,database,loadtest}.py` | Smart CI, canary analysis, root-cause analysis, database tuning, load tests |
+| `scripts/` | End-to-end checks: `test-ai-features.py`, `test-vscode.py` |
+| `security-tests/` | Attack suite run against the live stack |
+| `vscode-extension/` | OwnCloud Security extension for VS Code |
+| `QuantumTrace/` | QuantumTrace scanner (teammate's code), run as its own service |
+| `frontend/` | Website and console (Vite, React, TypeScript, Tailwind) |
+| `examples/apps/` | Sample apps: `legacy-payments` (RSA, gets blocked by the gate), `secure-notes` (AES-256), `hello-node`, `landing-static` |
+
+### API
+
+| Method | Path | |
+| --- | --- | --- |
+| `POST` | `/api/apps` | multipart: `name`, `enforce_gate`, `files[]`, optional `env` (JSON; defaults to the variables in the app's AWS config) |
+| `POST` | `/api/migrations/analyze` | multipart `files[]` → migration report, nothing deployed |
+| `GET` | `/api/apps`, `/api/apps/{id}` | status, URL, scan summary |
+| `POST` | `/api/apps/{id}/stop` · `/start` · `/redeploy` | lifecycle |
+| `DELETE` | `/api/apps/{id}` | removes container, image and files |
+| `GET` | `/api/apps/{id}/logs` · `/stats` · `/scan` | logs, CPU/memory, full QuantumTrace result |
+| `GET` | `/api/events?app_id=` | shared event feed |
+| `GET` | `/api/apps/{id}/files` · `/file?path=` | Source tree and file contents (editor) |
+| `PUT` | `/api/apps/{id}/file?path=` | Save a file: `{"content": "…"}` |
+| `GET` | `/api/apps/{id}/analysis` | Security + QuantumTrace findings for every file |
+| `POST` | `/api/apps/{id}/analysis/file` | Findings for an unsaved buffer: `{"path", "content"}` |
+| `POST` | `/api/auth/login` · `/logout`, `GET /api/auth/me` | Session (all other routes need it) |
+| `POST` | `/api/auth/signup`, `GET /api/auth/config` | Self-service account (when enabled) |
+| `POST` | `/api/auth/password` | Change password: `{"current_password", "new_password"}` |
+| `GET` `POST` `DELETE` | `/api/tokens` | Personal access tokens (browser session only) |
+| `GET` `POST` `PATCH` `DELETE` | `/api/users` | Accounts (admins, browser session only) |
+| `POST` | `/api/analysis/file` | Findings for any file `{"path", "content"}` (used by the VS Code extension) |
+| `GET` | `/api/apps/{id}/archive` | Every text file of an app in one response |
+| `GET` | `/api/apps/{id}/deployments` · `POST …/rollback` | Pipeline + canary history; roll back one version |
+| `GET` | `/api/apps/{id}/traffic` | Per-version requests/errors/latency, edge cache per region, learned navigation |
+| `GET` | `/api/apps/{id}/incidents` | Root-cause reports |
+| `GET` `POST` | `/api/apps/{id}/database` · `POST …/database/optimize` | Managed PostgreSQL and its optimiser |
+| `GET` | `/api/apps/{id}/loadtest/model` · `…/loadtest/k6` | Learned traffic model; k6 script |
+| `GET` `POST` | `/api/apps/{id}/loadtests` | Run and list generated load tests (`{"max_users"}`) |
+| `GET` | `/api/system` | Docker and QuantumTrace reachability |
+| `GET` | `/api/health` | `{"status": "ok"}` only |
+
+Browser requests other than `GET` need the header `X-OwnCloud-CSRF: 1`. Tools authenticate with
+`Authorization: Bearer oc_…` instead (no CSRF header needed).
+
+### Developing without Compose
 
 ### 4. Architecture Benchmark & Code Matrix
 ```bash
-python3 bridge/benchmark_comparison.py
-```
+# QuantumTrace on :8001
+docker build -t owncloud/quantumtrace QuantumTrace && docker run -d -p 127.0.0.1:8001:8000 owncloud/quantumtrace
 
 ---
 

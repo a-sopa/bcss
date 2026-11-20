@@ -8,6 +8,8 @@ import logging
 from typing import Any, Dict, Optional
 import urllib.request
 
+from cloud_honeypot_ai.config import CONFIG
+
 logger = logging.getLogger("honeypot.geoip")
 
 
@@ -24,6 +26,9 @@ class GeoLocation:
     asn: str
     isp: str
     is_private: bool = False
+    # Where the data came from: "online" (ip-api.com), "private" (LAN/loopback),
+    # "synthetic" (offline demo table or hash-seeded placeholder: NOT a real location), "invalid".
+    source: str = "synthetic"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -37,6 +42,7 @@ class GeoLocation:
             "asn": self.asn,
             "isp": self.isp,
             "is_private": self.is_private,
+            "source": self.source,
         }
 
 
@@ -161,6 +167,8 @@ SYNTHETIC_COUNTRIES = [
 class GeoIPResolver:
     """Resolves IP addresses with offline database and fast fallback."""
 
+    MAX_CACHE = 20000
+
     def __init__(self, use_online_api: bool = False):
         self.use_online_api = use_online_api
         self.cache: Dict[str, GeoLocation] = {}
@@ -174,8 +182,11 @@ class GeoIPResolver:
 
     def resolve(self, ip_str: str) -> GeoLocation:
         """Resolve IP address to GeoLocation with multi-tier fallback."""
-        if ip_str in self.cache:
-            return self.cache[ip_str]
+        cached = self.cache.get(ip_str)
+        if cached is not None:
+            return cached
+        if len(self.cache) >= self.MAX_CACHE:
+            self.cache.clear()
 
         # Check for private / loopback IP
         try:
@@ -192,6 +203,7 @@ class GeoIPResolver:
                     asn="AS-PRIVATE",
                     isp="Internal Cloud VPC / Localhost",
                     is_private=True,
+                    source="private",
                 )
                 self.cache[ip_str] = geo
                 return geo
@@ -207,9 +219,17 @@ class GeoIPResolver:
                 longitude=0.0,
                 asn="AS-UNKNOWN",
                 isp="Unknown ISP",
+                source="invalid",
             )
 
-        # 1. Match against known scanner/botnet CIDR subnets
+        # 1. Real lookup first when explicitly enabled (GEOIP_ONLINE=true)
+        if self.use_online_api:
+            online_geo = self._query_online_api(ip_str)
+            if online_geo:
+                self.cache[ip_str] = online_geo
+                return online_geo
+
+        # 2. Offline demo table of common scanner/botnet CIDR subnets (synthetic)
         for network, data in self._parsed_ranges:
             if ip_obj in network:
                 geo = GeoLocation(
@@ -226,13 +246,6 @@ class GeoIPResolver:
                 )
                 self.cache[ip_str] = geo
                 return geo
-
-        # 2. Try online API if enabled and network available
-        if self.use_online_api:
-            online_geo = self._query_online_api(ip_str)
-            if online_geo:
-                self.cache[ip_str] = online_geo
-                return online_geo
 
         # 3. Deterministic synthetic mapping for public IPs (hash-seeded)
         # Guarantees that any arbitrary IP gets a consistent, realistic country/city
@@ -275,6 +288,7 @@ class GeoIPResolver:
                         asn=data.get("as", "Unknown ASN"),
                         isp=data.get("isp", "Unknown ISP"),
                         is_private=False,
+                        source="online",
                     )
         except Exception as e:
             logger.debug("Online GeoIP query failed for %s: %s", ip_str, e)
@@ -282,4 +296,4 @@ class GeoIPResolver:
 
 
 # Global resolver singleton
-DEFAULT_RESOLVER = GeoIPResolver()
+DEFAULT_RESOLVER = GeoIPResolver(use_online_api=CONFIG.geoip_online)
