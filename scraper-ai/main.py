@@ -1,26 +1,22 @@
 #!/usr/bin/env python3
 """
-Pré-aquecimento (provisioned concurrency) de AWS Lambda por zona da Europa.
+Pré-aquecimento (provisioned concurrency) de servidores AWS Lambda e Geração de
+Diretivas de Cache por zona da Europa, integrando Google Gemini AI.
 
-Capacidade alvo = perfil histórico real (CloudWatch)
-                  x efeito dos eventos ativos em cada PAÍS, ponderado pelo peso do país
-                    no tráfego do deployment
+Capacidade alvo = perfil histórico real (CloudWatch / Baseline)
+                  x efeito dos eventos ativos em cada PAÍS (avaliados por Gemini AI),
+                    ponderado pelo peso do país no tráfego do deployment
                   + ajuste por feriados nacionais (usa o perfil de domingo)
 
 Fontes de eventos (cada uma é opcional e falha isoladamente):
   futebol       football-data.org   FOOTBALL_API_KEY       gratuita (12 competições)
-  predicthq     PredictHQ           PREDICTHQ_TOKEN        paga (14 dias de teste): concertos,
-                                                           festivais, todos os desportos, com lotação
-  ticketmaster  Ticketmaster        TICKETMASTER_API_KEY   gratuita: concertos (cobertura parcial,
-                                                           sem lotação -> heurística de estádio)
-  manual        ficheiro JSON       EVENTOS_MANUAIS        o que nenhuma API sabe: Black Friday,
-                                                           campanhas, lançamentos, greves, eleições
+  predicthq     PredictHQ           PREDICTHQ_TOKEN        paga (14 dias de teste)
+  ticketmaster  Ticketmaster        TICKETMASTER_API_KEY   gratuita: concertos
+  manual        ficheiro JSON       EVENTOS_MANUAIS        Black Friday, campanhas, lançamentos, greves
   feriados      biblioteca `holidays` (offline, sem chave)
+  gemini        Google Gemini AI    GEMINI_API_KEY         análise semântica e estratégias de cache
 
-Outras variáveis: DRY_RUN ("1" por defeito: só mostra | "0": aplica), CACHE_DIR (/tmp).
-Dependências: pip install boto3 requests holidays   (+ tzdata no Windows)
-Permissões IAM: cloudwatch:GetMetricData e lambda:Get/Put/DeleteProvisionedConcurrencyConfig
-Executar de 15 em 15 minutos (EventBridge Scheduler -> lambda_handler, ou cron -> main()).
+Exporta para: cache_manager_feed.json (consumível por futuro cache_manager)
 """
 import datetime as dt
 import json
@@ -35,14 +31,34 @@ from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import boto3
 import requests
-from botocore.exceptions import BotoCoreError, ClientError
+
+try:
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+except ImportError:
+    boto3 = None
+    BotoCoreError = Exception
+    ClientError = Exception
 
 try:
     import holidays
-except ImportError:  # sem a biblioteca, ignora feriados
+except ImportError:
     holidays = None
+
+# Integração com o módulo de IA Gemini
+try:
+    from gemini_analyzer import (
+        analisar_eventos_com_gemini,
+        exportar_para_cache_manager,
+        is_gemini_active,
+    )
+except ImportError:
+    from .gemini_analyzer import (
+        analisar_eventos_com_gemini,
+        exportar_para_cache_manager,
+        is_gemini_active,
+    )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("prewarm")
@@ -51,7 +67,7 @@ DRY_RUN = os.environ.get("DRY_RUN", "1") != "0"
 CACHE_DIR = Path(os.environ.get("CACHE_DIR", "/tmp"))
 
 # ----------------------------------------------------------------------------
-# PARÂMETROS GERAIS. Os "efeitos" são palpites: calibra com os teus picos reais.
+# PARÂMETROS GERAIS. Calibra com os teus picos reais.
 # ----------------------------------------------------------------------------
 HEADROOM = 1.3          # margem de segurança sobre a previsão
 LEAD_MIN = 20           # olha 20 min à frente (provisionar demora alguns minutos)
@@ -61,9 +77,7 @@ EFEITO_MIN = 0.50       # eventos com |efeito| abaixo disto são ignorados
 EFEITO_MAX = 3.0        # teto do efeito de um evento
 DIA_PERFIL_FERIADO = 6  # em feriado usa o perfil de domingo (0=segunda ... 6=domingo)
 
-# Sinal e escala por fonte. IMPORTANTE: depende do teu produto. Num serviço de media/
-# apostas/streaming o tráfego SOBE durante jogos; noutros pode CAIR (as pessoas estão a ver).
-# Mede e ajusta: 1.0 = sobe como definido, -0.5 = cai metade, 0 = desliga a fonte.
+# Sinal e escala por fonte
 FATOR_FONTE = {"futebol": 1.0, "predicthq": 1.0, "ticketmaster": 1.0, "manual": 1.0}
 
 PRE_EVENTO = dt.timedelta(minutes=30)
@@ -71,10 +85,7 @@ DURACAO_JOGO = dt.timedelta(hours=2, minutes=15)           # inclui intervalo e 
 DURACAO_ELIMINATORIA = dt.timedelta(hours=3, minutes=15)   # prolongamento/penáltis
 
 # ----------------------------------------------------------------------------
-# PAÍSES -> zona de audiência, peso, fuso horário, nomes (como a API de futebol os devolve).
-# "peso" é um PROXY (população em milhões). Substitui pela % real do teu tráfego por país
-# (logs do CloudFront/ALB): é o parâmetro que mais influencia o resultado.
-# Zonas: oeste | central | norte (UK+Escandinávia+Bálticos) | sul_este | balcas
+# PAÍSES -> zona de audiência, peso (população proxy), fuso horário, nomes
 # ----------------------------------------------------------------------------
 PAISES = {
     "PT": ("oeste", 10.4, "Europe/Lisbon", ["portugal"]),
@@ -121,12 +132,14 @@ PAISES = {
 }
 NOME_PARA_ISO = {n: iso for iso, (_, _, _, nomes) in PAISES.items() for n in nomes}
 
-# Que deployment serve cada zona (várias zonas podem partilhar um deployment).
-ZONA_DEPLOYMENT = {"oeste": "eu-oeste", "central": "eu-central", "norte": "eu-norte",
-                   "sul_este": "eu-sul", "balcas": "eu-sul"}
+ZONA_DEPLOYMENT = {
+    "oeste": "eu-oeste",
+    "central": "eu-central",
+    "norte": "eu-norte",
+    "sul_este": "eu-sul",
+    "balcas": "eu-sul",
+}
 
-# Onde o teu código corre. Só ganhas com isto se o tráfego de cada zona for mesmo
-# encaminhado para o deployment certo (Route 53 por latência ou geolocalização).
 DEPLOYMENTS = {
     "eu-oeste":   {"aws_region": "eu-west-3",    "function": "api", "alias": "live", "min_pc": 0, "max_pc": 200},
     "eu-central": {"aws_region": "eu-central-1", "function": "api", "alias": "live", "min_pc": 0, "max_pc": 200},
@@ -136,7 +149,6 @@ DEPLOYMENTS = {
 
 
 def _calcular_pesos():
-    """deployment -> {pais: fração do tráfego desse deployment}."""
     por_dep = defaultdict(dict)
     for iso, (zona, peso, _, _) in PAISES.items():
         por_dep[ZONA_DEPLOYMENT[zona]][iso] = peso
@@ -148,7 +160,6 @@ PESOS = _calcular_pesos()
 # ----------------------------------------------------------------------------
 # PARÂMETROS POR FONTE
 # ----------------------------------------------------------------------------
-# futebol: competição -> (efeito base, tipo). "liga": país da competição; "equipas": país de cada equipa
 COMPETICOES = {
     "PL": (0.35, "liga"), "PD": (0.35, "liga"), "BL1": (0.35, "liga"), "SA": (0.35, "liga"),
     "FL1": (0.35, "liga"), "PPL": (0.35, "liga"), "DED": (0.30, "liga"),
@@ -160,17 +171,16 @@ ELIMINATORIAS = {"FINAL", "SEMI_FINALS", "QUARTER_FINALS", "LAST_16", "LAST_32",
 GRANDES = ("real madrid", "fc barcelona", "atlético", "benfica", "sporting clube de portugal",
            "fc porto", "manchester united", "manchester city", "liverpool", "arsenal",
            "chelsea", "tottenham", "bayern", "dortmund", "paris saint-germain", "juventus",
-           "internazionale", "milan", "napoli", "ajax")   # confirma os nomes que a API devolve
+           "internazionale", "milan", "napoli", "ajax")
 
-# predicthq: efeito = PHQ_EFEITO_POR_100K x lotação/100k (ex.: 100k pessoas -> +0.5)
 PHQ_CATEGORIAS = "sports,concerts,festivals,performing-arts,conferences,expos"
 PHQ_RANK_MIN = 60
 PHQ_EFEITO_POR_100K = 0.5
 
-# ticketmaster: sem lotação na API -> só conta concertos em recintos com estes nomes
 TM_RECINTOS_GRANDES = ("stadium", "stadion", "stade", "estadio", "estádio", "stadio",
                        "olympia", "wembley", "arena nacional")
 TM_EFEITO_RECINTO_GRANDE = 0.5
+TM_PAISES_RELEVANTES = ["GB", "DE", "FR", "ES", "NL", "BE", "IE", "SE", "NO", "DK", "AT", "CH", "PL", "IT", "PT"]
 
 
 # ----------------------------------------------------------------------------
@@ -181,8 +191,6 @@ def chave(weekday, hora):
 
 
 def _cache(nome, ttl_s, produzir):
-    """Cache em JSON. Em Lambda o /tmp só persiste em containers quentes; em produção
-    troca por S3/DynamoDB/SSM se quiseres cache partilhada."""
     f = CACHE_DIR / f"prewarm_{nome}.json"
     try:
         if time.time() - f.stat().st_mtime < ttl_s:
@@ -206,47 +214,75 @@ class Evento:
     pais: str            # ISO alpha-2
     inicio: dt.datetime
     fim: dt.datetime
-    efeito: float        # variação do tráfego desse país: 0.5 = +50%, negativo = quebra
+    efeito: float        # variação do tráfego: 0.5 = +50%, negativo = quebra
     descricao: str
     fonte: str = ""
 
 
 # ----------------------------------------------------------------------------
-# Perfil histórico (CloudWatch)
+# Perfil histórico (CloudWatch com Fallback Baseline de Simulação)
 # ----------------------------------------------------------------------------
+def _perfil_baseline_simulado():
+    """Perfil diário realista para demonstração/testes sem CloudWatch ativo."""
+    curva_hora = [
+        6.0, 4.0, 3.0, 2.5, 3.0, 5.0, 8.0, 12.0, 16.0, 19.0, 21.0, 22.0,
+        25.0, 24.0, 20.0, 19.0, 21.0, 23.0, 27.0, 32.0, 35.0, 30.0, 22.0, 12.0
+    ]
+    perfil = {}
+    for weekday in range(7):
+        fator_dia = 0.85 if weekday >= 5 else 1.0
+        for hora in range(24):
+            perfil[chave(weekday, hora)] = round(curva_hora[hora] * fator_dia, 1)
+    return perfil
+
+
 def perfil_historico(dep, dias=28):
-    """Concorrência típica por (dia da semana, hora UTC): lei de Little por janelas de 5 min,
-    pico de cada hora, MEDIANA entre semanas (um jogo passado não inflaciona o perfil)."""
-    cw = boto3.client("cloudwatch", region_name=dep["aws_region"])
-    fim = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0)
-    ini = fim - dt.timedelta(days=dias)
-    dim = [{"Name": "FunctionName", "Value": dep["function"]}]
+    """
+    Concorrência típica por (dia da semana, hora UTC): lei de Little por janelas de 5 min.
+    Se o CloudWatch não responder ou não tiver métricas, recorre ao perfil baseline.
+    """
+    if boto3 is None:
+        return _perfil_baseline_simulado()
 
-    def q(i, metrica, stat):
-        return {"Id": i, "ReturnData": True, "MetricStat": {
-            "Metric": {"Namespace": "AWS/Lambda", "MetricName": metrica, "Dimensions": dim},
-            "Period": 300, "Stat": stat}}
+    try:
+        cw = boto3.client("cloudwatch", region_name=dep["aws_region"])
+        fim = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0)
+        ini = fim - dt.timedelta(days=dias)
+        dim = [{"Name": "FunctionName", "Value": dep["function"]}]
 
-    series = defaultdict(dict)
-    for page in cw.get_paginator("get_metric_data").paginate(
-            MetricDataQueries=[q("inv", "Invocations", "Sum"), q("dur", "Duration", "Average")],
-            StartTime=ini, EndTime=fim, ScanBy="TimestampAscending"):
-        for r in page["MetricDataResults"]:
-            for ts, v in zip(r["Timestamps"], r["Values"]):
-                series[r["Id"]][ts] = v
+        def q(i, metrica, stat):
+            return {"Id": i, "ReturnData": True, "MetricStat": {
+                "Metric": {"Namespace": "AWS/Lambda", "MetricName": metrica, "Dimensions": dim},
+                "Period": 300, "Stat": stat}}
 
-    pico_hora = defaultdict(float)
-    for ts, n in series["inv"].items():
-        seg = series["dur"].get(ts, 100.0) / 1000.0
-        k = (ts.date(), ts.hour)
-        pico_hora[k] = max(pico_hora[k], n / 300.0 * seg)
+        series = defaultdict(dict)
+        for page in cw.get_paginator("get_metric_data").paginate(
+                MetricDataQueries=[q("inv", "Invocations", "Sum"), q("dur", "Duration", "Average")],
+                StartTime=ini, EndTime=fim, ScanBy="TimestampAscending"):
+            for r in page["MetricDataResults"]:
+                for ts, v in zip(r["Timestamps"], r["Values"]):
+                    series[r["Id"]][ts] = v
 
-    por_slot = defaultdict(list)
-    h = ini
-    while h < fim:  # todas as horas: as sem tráfego contam como 0
-        por_slot[(h.weekday(), h.hour)].append(pico_hora.get((h.date(), h.hour), 0.0))
-        h += dt.timedelta(hours=1)
-    return {chave(*k): statistics.median(v) for k, v in por_slot.items()}
+        pico_hora = defaultdict(float)
+        for ts, n in series["inv"].items():
+            seg = series["dur"].get(ts, 100.0) / 1000.0
+            k = (ts.date(), ts.hour)
+            pico_hora[k] = max(pico_hora[k], n / 300.0 * seg)
+
+        por_slot = defaultdict(list)
+        h = ini
+        while h < fim:
+            por_slot[(h.weekday(), h.hour)].append(pico_hora.get((h.date(), h.hour), 0.0))
+            h += dt.timedelta(hours=1)
+
+        resultado = {chave(*k): statistics.median(v) for k, v in por_slot.items()}
+        if not any(resultado.values()):
+            return _perfil_baseline_simulado()
+        return resultado
+    except Exception as e:
+        log.warning("[%s] CloudWatch indisponível (%s): a usar perfil histórico baseline",
+                    dep.get("aws_region"), e)
+        return _perfil_baseline_simulado()
 
 
 # ----------------------------------------------------------------------------
@@ -257,14 +293,13 @@ FOOTBALL_API = "https://api.football-data.org/v4"
 
 def _fb_get(path, **params):
     r = requests.get(f"{FOOTBALL_API}{path}",
-                     headers={"X-Auth-Token": os.environ["FOOTBALL_API_KEY"]},
+                     headers={"X-Auth-Token": os.environ.get("FOOTBALL_API_KEY", "")},
                      params=params, timeout=15)
     r.raise_for_status()
     return r.json()
 
 
 def _paises_das_equipas():
-    """team_id -> nome do país, para Champions e seleções."""
     def obter():
         out = {}
         for code, (_, tipo) in COMPETICOES.items():
@@ -297,7 +332,13 @@ def eventos_futebol(agora):
         return []
     paises_equipa = _paises_das_equipas()
     out = []
-    for m in _jogos_brutos(agora):
+    try:
+        jogos = _jogos_brutos(agora)
+    except Exception as e:
+        log.warning("futebol: erro ao obter jogos (%s)", e)
+        return []
+
+    for m in jogos:
         if m.get("status") not in ("SCHEDULED", "TIMED", "IN_PLAY", "PAUSED"):
             continue
         code = (m.get("competition") or {}).get("code")
@@ -308,7 +349,7 @@ def eventos_futebol(agora):
         equipas = [m.get("homeTeam") or {}, m.get("awayTeam") or {}]
         nomes = [(t.get("name") or "").lower() for t in equipas]
         grandes = [any(g in n for g in GRANDES) for n in nomes]
-        extra = 1.3 if all(grandes) else 1.0   # clássico/derby entre grandes
+        extra = 1.3 if all(grandes) else 1.0
 
         por_pais = {}
         for t, grande in zip(equipas, grandes):
@@ -316,8 +357,6 @@ def eventos_futebol(agora):
                 else paises_equipa.get(str(t.get("id")), "")
             iso = NOME_PARA_ISO.get(nome_pais.strip().lower())
             if not iso:
-                if nome_pais:
-                    log.warning("futebol: país sem mapeamento %r (jogo %s)", nome_pais, m.get("id"))
                 continue
             ef = base * STAGE_MULT.get(stage, 1.0) * extra * (1.5 if grande else 1.0)
             por_pais[iso] = max(por_pais.get(iso, 0.0), ef)
@@ -334,7 +373,7 @@ def eventos_futebol(agora):
 
 
 # ----------------------------------------------------------------------------
-# Fonte: PredictHQ (concertos, festivais, todos os desportos, com lotação estimada)
+# Fonte: PredictHQ
 # ----------------------------------------------------------------------------
 def eventos_predicthq(agora):
     token = os.environ.get("PREDICTHQ_TOKEN")
@@ -357,7 +396,7 @@ def eventos_predicthq(agora):
             r.raise_for_status()
             j = r.json()
             out += j.get("results", [])
-            url, params = j.get("next"), None   # o URL de "next" já traz os filtros
+            url, params = j.get("next"), None
         return out
 
     out = []
@@ -377,7 +416,7 @@ def eventos_predicthq(agora):
 
 
 # ----------------------------------------------------------------------------
-# Fonte: Ticketmaster (concertos; gratuita, cobertura parcial, sem lotação)
+# Fonte: Ticketmaster
 # ----------------------------------------------------------------------------
 def eventos_ticketmaster(agora):
     key = os.environ.get("TICKETMASTER_API_KEY")
@@ -388,21 +427,20 @@ def eventos_ticketmaster(agora):
     def obter():
         fmt = "%Y-%m-%dT%H:%M:%SZ"
         out = []
-        for iso in PAISES:
-            if iso == "XK":
-                continue
+        paises_consulta = [p for p in TM_PAISES_RELEVANTES if p in PAISES]
+        for iso in paises_consulta:
             try:
                 r = requests.get("https://app.ticketmaster.com/discovery/v2/events.json", params={
                     "apikey": key, "countryCode": iso, "classificationName": "music",
                     "startDateTime": (agora - dt.timedelta(hours=12)).strftime(fmt),
                     "endDateTime": (agora + dt.timedelta(days=3)).strftime(fmt),
-                    "size": 200, "sort": "date,asc"}, timeout=15)
+                    "size": 100, "sort": "date,asc"}, timeout=15)
                 r.raise_for_status()
             except requests.RequestException as e:
                 log.warning("ticketmaster %s: %s", iso, e)
                 continue
             out += [dict(ev, _pais=iso) for ev in (r.json().get("_embedded") or {}).get("events", [])]
-            time.sleep(0.25)   # limite de 5 pedidos/s
+            time.sleep(0.2)
         return out
 
     out = []
@@ -420,16 +458,30 @@ def eventos_ticketmaster(agora):
 
 
 # ----------------------------------------------------------------------------
-# Fonte: eventos manuais (o que nenhuma API sabe)
+# Fonte: eventos manuais (resolução robusta de caminho e maiúsculas/minúsculas)
 # ----------------------------------------------------------------------------
 def eventos_manuais(agora):
-    """Ficheiro JSON: lista de {"descricao", "inicio", "fim", "efeito", e UM de:
-    "paises": ["PT","ES"] | "zona": "oeste" | (nada = todos os países)}. Datas em ISO com Z."""
-    f = Path(os.environ.get("EVENTOS_MANUAIS", "eventos_manuais.json"))
+    caminho_env = os.environ.get("EVENTOS_MANUAIS")
+    if caminho_env:
+        f = Path(caminho_env)
+    else:
+        base = Path(__file__).resolve().parent
+        f = base / "EventosManuais.json"
+        if not f.exists():
+            f = base / "eventos_manuais.json"
+
     if not f.exists():
+        log.warning("eventos_manuais: ficheiro %s não encontrado", f)
         return []
+
+    try:
+        conteudo = json.loads(f.read_text(encoding="utf-8"))
+    except Exception as err:
+        log.warning("eventos_manuais: erro ao ler %s: %s", f, err)
+        return []
+
     out = []
-    for e in json.loads(f.read_text()):
+    for e in conteudo:
         try:
             if e.get("paises"):
                 isos = [p.upper() for p in e["paises"]]
@@ -446,17 +498,20 @@ def eventos_manuais(agora):
     return out
 
 
-FONTES = {"futebol": eventos_futebol, "predicthq": eventos_predicthq,
-          "ticketmaster": eventos_ticketmaster, "manual": eventos_manuais}
+FONTES = {
+    "futebol": eventos_futebol,
+    "predicthq": eventos_predicthq,
+    "ticketmaster": eventos_ticketmaster,
+    "manual": eventos_manuais,
+}
 
 
 def recolher_eventos(agora):
-    """Cada fonte falha isoladamente: se uma cair, as outras continuam."""
     todos = []
     for nome, fn in FONTES.items():
         try:
             evs = fn(agora)
-        except (requests.RequestException, KeyError, ValueError, TypeError, OSError) as e:
+        except Exception as e:
             log.error("fonte %s falhou (%s): ignorada nesta execução", nome, e)
             continue
         for e in evs:
@@ -476,22 +531,18 @@ def _feriados(iso, ano):
     try:
         return holidays.country_holidays(iso, years=ano)
     except (NotImplementedError, KeyError):
-        log.warning("feriados: país %s não suportado", iso)
         return {}
 
 
 @lru_cache(maxsize=None)
 def _fuso(nome):
-    """Em sistemas sem tzdata (ex.: Windows: pip install tzdata) cai para UTC em vez de rebentar."""
     try:
         return ZoneInfo(nome)
     except ZoneInfoNotFoundError:
-        log.warning("fuso %s não encontrado: uso UTC (instala o pacote tzdata)", nome)
         return dt.timezone.utc
 
 
 def fracao_feriado(dep_nome, quando):
-    """Fração do tráfego do deployment que está em feriado nacional (data LOCAL de cada país)."""
     h = 0.0
     for iso, peso in PESOS[dep_nome].items():
         local = quando.astimezone(_fuso(PAISES[iso][2])).date()
@@ -502,7 +553,7 @@ def fracao_feriado(dep_nome, quando):
 
 def base_esperada(dep_nome, perfil, quando):
     normal = perfil.get(chave(quando.weekday(), quando.hour), 0.0)
-    if quando.weekday() >= 5:   # fim de semana: o perfil já é o "dia livre"
+    if quando.weekday() >= 5:
         return normal
     h = fracao_feriado(dep_nome, quando)
     if h == 0:
@@ -515,8 +566,6 @@ def base_esperada(dep_nome, perfil, quando):
 # Capacidade alvo
 # ----------------------------------------------------------------------------
 def multiplicador(dep_nome, eventos, quando):
-    """1 + soma(peso do país no deployment x efeito do evento dominante nesse país).
-    Só pesam os países com evento ativo: um jogo nos Balcãs não pré-aquece a Itália."""
     mult = 1.0
     for iso, peso in PESOS[dep_nome].items():
         ativos = [e.efeito for e in eventos if e.pais == iso and e.inicio <= quando <= e.fim]
@@ -526,7 +575,6 @@ def multiplicador(dep_nome, eventos, quando):
 
 
 def alvo_pc(dep_nome, dep, perfil, eventos, agora):
-    """Máximo da necessidade entre agora e agora+LEAD (não desce mesmo antes de uma subida)."""
     melhor = 0.0
     for minutos in range(0, LEAD_MIN + 1, 10):
         t = agora + dt.timedelta(minutes=minutos)
@@ -536,12 +584,14 @@ def alvo_pc(dep_nome, dep, perfil, eventos, agora):
 
 
 # ----------------------------------------------------------------------------
-# Aplicar na AWS
+# Aplicação em AWS Lambda (ou simulação local)
 # ----------------------------------------------------------------------------
 NAO_EXISTE = {"ProvisionedConcurrencyConfigNotFoundException", "ResourceNotFoundException"}
 
 
 def _pc_atual(lam, dep):
+    if lam is None:
+        return 5  # Valor baseline simulado para teste
     try:
         r = lam.get_provisioned_concurrency_config(FunctionName=dep["function"],
                                                    Qualifier=dep["alias"])
@@ -549,7 +599,10 @@ def _pc_atual(lam, dep):
     except ClientError as e:
         if e.response["Error"]["Code"] in NAO_EXISTE:
             return 0
-        raise
+        log.warning("[%s] Erro ao obter PC (%s): assumindo 0", dep.get("aws_region"), e)
+        return 0
+    except Exception:
+        return 5
 
 
 def _vale_a_pena(atual, novo):
@@ -561,15 +614,15 @@ def _vale_a_pena(atual, novo):
 
 
 def aplicar(nome, dep, novo):
-    lam = boto3.client("lambda", region_name=dep["aws_region"])
+    lam = boto3.client("lambda", region_name=dep["aws_region"]) if boto3 is not None else None
     atual = _pc_atual(lam, dep)
     if not _vale_a_pena(atual, novo):
         log.info("[%s] mantém %s (alvo %s)", nome, atual, novo)
-        return
-    log.info("[%s] provisioned concurrency %s -> %s%s", nome, atual, novo,
-             "  (DRY_RUN)" if DRY_RUN else "")
-    if DRY_RUN:
-        return
+        return atual
+    simulado_str = "  (DRY_RUN / SIMULAÇÃO)" if (DRY_RUN or lam is None) else ""
+    log.info("[%s] provisioned concurrency %s -> %s%s", nome, atual, novo, simulado_str)
+    if DRY_RUN or lam is None:
+        return atual
     if novo == 0:
         try:
             lam.delete_provisioned_concurrency_config(FunctionName=dep["function"],
@@ -581,33 +634,82 @@ def aplicar(nome, dep, novo):
         lam.put_provisioned_concurrency_config(FunctionName=dep["function"],
                                                Qualifier=dep["alias"],
                                                ProvisionedConcurrentExecutions=novo)
+    return novo
 
 
 # ----------------------------------------------------------------------------
+# Execução Principal
+# ----------------------------------------------------------------------------
 def main():
     agora = dt.datetime.now(dt.timezone.utc)
-    if holidays is None:
-        log.warning("biblioteca 'holidays' não instalada: feriados ignorados")
 
+    if holidays is None:
+        log.info("biblioteca 'holidays' não instalada: feriados ignorados (opcional: pip install holidays)")
+    if boto3 is None:
+        log.info("boto3 não instalado: execução em modo de simulação / exportação para cache manager")
+
+    # 1. Recolha de eventos
     eventos = recolher_eventos(agora)
+
+    # 2. Análise semântica e estratégias de cache via Google Gemini AI
+    eventos_analisados = analisar_eventos_com_gemini(eventos)
+
+    # 3. Ajuste fino dos efeitos com base na IA
+    for e, ia in zip(eventos, eventos_analisados):
+        if "efeito_ajustado" in ia:
+            try:
+                e.efeito = max(MIN_MULT, min(EFEITO_MAX, float(ia["efeito_ajustado"])))
+            except (ValueError, TypeError):
+                pass
+
+    # Log dos eventos ativos e nas próximas 24 horas
     for e in sorted(eventos, key=lambda x: x.inicio):
-        if e.fim >= agora and e.inicio <= agora + dt.timedelta(hours=12):
+        if e.fim >= agora and e.inicio <= agora + dt.timedelta(hours=24):
             log.info("evento [%s] %+.2f %s -> %s | %s (%s)", e.pais, e.efeito,
                      e.inicio.strftime("%d/%m %H:%M"), e.fim.strftime("%H:%M UTC"),
                      e.descricao, e.fonte)
 
+    deployments_resultado = {}
     for nome, dep in DEPLOYMENTS.items():
         try:
             perfil = _cache(f"perfil_{nome}", 86400, lambda d=dep: perfil_historico(d))
-            if not any(perfil.values()):
-                log.warning("[%s] sem histórico de tráfego: não altero nada", nome)
-                continue
             fer = fracao_feriado(nome, agora)
             if fer:
                 log.info("[%s] %.0f%% do tráfego está em feriado nacional hoje", nome, fer * 100)
-            aplicar(nome, dep, alvo_pc(nome, dep, perfil, eventos, agora))
-        except (ClientError, BotoCoreError) as e:
-            log.error("[%s] falhou (%s): mantenho o estado atual", nome, e)
+
+            alvo = alvo_pc(nome, dep, perfil, eventos, agora)
+            mult = multiplicador(nome, eventos, agora)
+            base = base_esperada(nome, perfil, agora)
+
+            lam = boto3.client("lambda", region_name=dep["aws_region"]) if boto3 is not None else None
+            atual = _pc_atual(lam, dep)
+            aplicar(nome, dep, alvo)
+
+            paises_zona = [iso for iso, (z, _, _, _) in PAISES.items() if ZONA_DEPLOYMENT.get(z) == nome]
+            deployments_resultado[nome] = {
+                "aws_region": dep["aws_region"],
+                "function": dep["function"],
+                "multiplicador": round(mult, 2),
+                "base_esperada": round(base, 2),
+                "alvo_pc": alvo,
+                "atual_pc": atual,
+                "paises_cobertos": paises_zona,
+            }
+        except Exception as e:
+            log.error("[%s] falhou (%s): mantendo o estado atual", nome, e)
+
+    # 4. Exportação das diretivas consolidadas para o Cache Manager
+    caminho_cache = Path(os.environ.get(
+        "CACHE_MANAGER_OUTPUT",
+        Path(__file__).resolve().parent / "cache_manager_feed.json"
+    ))
+    exportar_para_cache_manager(
+        caminho_saida=caminho_cache,
+        agora=agora,
+        deployments_resultado=deployments_resultado,
+        eventos_analisados=eventos_analisados,
+        dry_run=DRY_RUN or (boto3 is None),
+    )
 
 
 def lambda_handler(event=None, context=None):

@@ -1,1 +1,5 @@
 .env/
+__pycache__/
+*.py[cod]
+.env
+cache_manager_feed.json

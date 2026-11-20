@@ -1,5 +1,19 @@
 [
   {
+    "descricao": "JunctionX Hackathon Lisbon & Tech European Showcase",
+    "inicio": "2026-11-20T08:00:00Z",
+    "fim": "2026-11-20T23:59:00Z",
+    "efeito": 1.1,
+    "paises": ["PT", "ES"]
+  },
+  {
+    "descricao": "UEFA Champions League / Dérbi Europeu em Direto",
+    "inicio": "2026-11-20T18:30:00Z",
+    "fim": "2026-11-20T22:30:00Z",
+    "efeito": 0.9,
+    "paises": ["PT", "ES", "GB", "DE"]
+  },
+  {
     "descricao": "Black Friday",
     "inicio": "2026-11-27T00:00:00Z",
     "fim": "2026-11-27T23:00:00Z",

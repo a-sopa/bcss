@@ -1,0 +1,7 @@
+# Dependências para o Scraper AI, Gemini LLM e Pre-warm Engine
+requests>=2.28.0
+
+# Opcionais (se fores executar diretamente na AWS com métricas reais)
+boto3>=1.26.0
+holidays>=0.30
+tzdata>=2023.3; sys_platform == 'win32'
