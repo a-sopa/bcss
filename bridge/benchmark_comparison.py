@@ -10,6 +10,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRAPER_DIR = REPO_ROOT / "scraper-ai"
 CACHE_DIR = REPO_ROOT / "CacheManager"
+HONEYPOT_DIR = REPO_ROOT / "cloud_honeypot_ai"
 
 
 def count_code_metrics(directory: Path):
@@ -55,6 +56,7 @@ def run_comparison():
         scraper_metrics["blank_lines"] += pm["blank_lines"]
 
     cache_metrics = count_code_metrics(CACHE_DIR)
+    honeypot_metrics = count_code_metrics(HONEYPOT_DIR) if HONEYPOT_DIR.exists() else None
 
     comparison_matrix = {
         "DIMENSION": [
@@ -99,8 +101,10 @@ def run_comparison():
     print(" 📊 BENCHMARK COMPARATIVO: SCRAPER-AI vs CACHEMANAGER")
     print("=" * 80)
     print(f"\n[MÉTRICAS DE CÓDIGO]")
-    print(f"  • scraper-ai (Tua Solução):   {scraper_metrics['files_count']} ficheiros Python | {scraper_metrics['code_lines']} linhas de código ({scraper_metrics['total_lines']} totais)")
-    print(f"  • CacheManager (Colega):      {cache_metrics['files_count']} ficheiros Python | {cache_metrics['code_lines']} linhas de código ({cache_metrics['total_lines']} totais)")
+    print(f"  • scraper-ai + server-preheat: {scraper_metrics['files_count']} ficheiros Python | {scraper_metrics['code_lines']} linhas de código ({scraper_metrics['total_lines']} totais)")
+    print(f"  • CacheManager (Redis Cache): {cache_metrics['files_count']} ficheiros Python | {cache_metrics['code_lines']} linhas de código ({cache_metrics['total_lines']} totais)")
+    if honeypot_metrics:
+        print(f"  • cloud_honeypot_ai (Shield):  {honeypot_metrics['files_count']} ficheiros Python | {honeypot_metrics['code_lines']} linhas de código ({honeypot_metrics['total_lines']} totais)")
 
     print(f"\n[MATRIZ DE CAPACIDADES FUNCIONAIS]")
     for dim, mine, theirs in zip(comparison_matrix["DIMENSION"], comparison_matrix["SCRAPER_AI (Tua Solucao)"], comparison_matrix["CACHE_MANAGER (Colega)"]):

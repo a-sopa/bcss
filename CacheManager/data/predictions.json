@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-11-20T12:31:30.789808+00:00",
+  "timestamp_utc": "2026-11-20T14:02:36.697121+00:00",
   "generator_version": "2.2-gemini-ai",
   "dry_run": true,
   "ai_status": {
@@ -9,12 +9,12 @@
   "self_critic_loop": {
     "feedback_found": true,
     "failed_regions_adapted": [
-      "us-east-1"
+      "eu-west-3"
     ]
   },
   "server_preheat_summary": {
     "status": "ALL_ZONES_PREHEATED",
-    "total_capacity_warmed": 367,
+    "total_capacity_warmed": 296,
     "peak_zones": [
       "eu-west",
       "eu-central",
@@ -22,7 +22,7 @@
       "eu-south"
     ],
     "servers_ready": true,
-    "warmed_at_utc": "2026-11-20T12:31:30.789808+00:00"
+    "warmed_at_utc": "2026-11-20T14:02:36.697121+00:00"
   },
   "deployments": {
     "eu-west": {
@@ -38,30 +38,30 @@
       ],
       "prewarm_status": "peak_expected",
       "traffic_multiplier": 3.01,
-      "target_lambda_concurrency": 98,
+      "target_lambda_concurrency": 79,
       "current_lambda_concurrency": 5,
       "server_preheat": {
         "status": "PREHEATED",
         "scaling_action": "SCALED_UP",
-        "target_instances": 98,
+        "target_instances": 79,
         "previous_instances": 5,
-        "current_active_instances": 98,
+        "current_active_instances": 79,
         "is_simulation": true,
         "warmup_method": "provisioned_concurrency + active_synthetic_probes",
         "active_warmup": {
           "probes_sent": 10,
           "probes_successful": 10,
-          "warmup_duration_ms": 20.14,
+          "warmup_duration_ms": 20.12,
           "runtime_state": "WARM_READY",
           "db_connection_pool": "INITIALIZED"
         },
         "server_readiness": "100% READY",
-        "warmed_at_utc": "2026-11-20T12:31:31.022156+00:00"
+        "warmed_at_utc": "2026-11-20T14:02:37.109201+00:00"
       },
-      "self_critic_feedback_adapted": false,
+      "self_critic_feedback_adapted": true,
       "cache_directive": {
         "recommended_strategy": "aggressive_precache",
-        "recommended_ttl_seconds": 3600,
+        "recommended_ttl_seconds": 5400,
         "stale_while_revalidate_seconds": 120,
         "pre_warm_routes": [
           "/api/v1/catalog",
@@ -69,12 +69,14 @@
           "/api/v1/feed",
           "/api/v1/live",
           "/api/v1/news",
+          "/api/v1/news_portals",
           "/api/v1/products",
           "/api/v1/promotions",
           "/api/v1/schedule",
           "/api/v1/scoreboard",
           "/api/v1/status",
           "/api/v1/stream",
+          "/api/v1/stream/high_priority",
           "/api/v1/tickets",
           "/api/v1/venues"
         ],
@@ -95,25 +97,25 @@
       ],
       "prewarm_status": "peak_expected",
       "traffic_multiplier": 3.54,
-      "target_lambda_concurrency": 116,
+      "target_lambda_concurrency": 93,
       "current_lambda_concurrency": 5,
       "server_preheat": {
         "status": "PREHEATED",
         "scaling_action": "SCALED_UP",
-        "target_instances": 116,
+        "target_instances": 93,
         "previous_instances": 5,
-        "current_active_instances": 116,
+        "current_active_instances": 93,
         "is_simulation": true,
         "warmup_method": "provisioned_concurrency + active_synthetic_probes",
         "active_warmup": {
           "probes_sent": 10,
           "probes_successful": 10,
-          "warmup_duration_ms": 20.14,
+          "warmup_duration_ms": 20.12,
           "runtime_state": "WARM_READY",
           "db_connection_pool": "INITIALIZED"
         },
         "server_readiness": "100% READY",
-        "warmed_at_utc": "2026-11-20T12:31:31.048235+00:00"
+        "warmed_at_utc": "2026-11-20T14:02:37.137922+00:00"
       },
       "self_critic_feedback_adapted": false,
       "cache_directive": {
@@ -154,26 +156,26 @@
         "LT"
       ],
       "prewarm_status": "peak_expected",
-      "traffic_multiplier": 2.97,
-      "target_lambda_concurrency": 97,
+      "traffic_multiplier": 3.0,
+      "target_lambda_concurrency": 79,
       "current_lambda_concurrency": 5,
       "server_preheat": {
         "status": "PREHEATED",
         "scaling_action": "SCALED_UP",
-        "target_instances": 97,
+        "target_instances": 79,
         "previous_instances": 5,
-        "current_active_instances": 97,
+        "current_active_instances": 79,
         "is_simulation": true,
         "warmup_method": "provisioned_concurrency + active_synthetic_probes",
         "active_warmup": {
           "probes_sent": 10,
           "probes_successful": 10,
-          "warmup_duration_ms": 20.12,
+          "warmup_duration_ms": 20.17,
           "runtime_state": "WARM_READY",
           "db_connection_pool": "INITIALIZED"
         },
         "server_readiness": "100% READY",
-        "warmed_at_utc": "2026-11-20T12:31:31.076840+00:00"
+        "warmed_at_utc": "2026-11-20T14:02:37.168781+00:00"
       },
       "self_critic_feedback_adapted": false,
       "cache_directive": {
@@ -220,25 +222,25 @@
       ],
       "prewarm_status": "peak_expected",
       "traffic_multiplier": 1.72,
-      "target_lambda_concurrency": 56,
+      "target_lambda_concurrency": 45,
       "current_lambda_concurrency": 5,
       "server_preheat": {
         "status": "PREHEATED",
         "scaling_action": "SCALED_UP",
-        "target_instances": 56,
+        "target_instances": 45,
         "previous_instances": 5,
-        "current_active_instances": 56,
+        "current_active_instances": 45,
         "is_simulation": true,
         "warmup_method": "provisioned_concurrency + active_synthetic_probes",
         "active_warmup": {
           "probes_sent": 10,
           "probes_successful": 10,
-          "warmup_duration_ms": 20.14,
+          "warmup_duration_ms": 20.13,
           "runtime_state": "WARM_READY",
           "db_connection_pool": "INITIALIZED"
         },
         "server_readiness": "100% READY",
-        "warmed_at_utc": "2026-11-20T12:31:31.106270+00:00"
+        "warmed_at_utc": "2026-11-20T14:02:37.201186+00:00"
       },
       "self_critic_feedback_adapted": false,
       "cache_directive": {
@@ -268,11 +270,11 @@
     {
       "category": "sports",
       "traffic_pattern": "pre_event_surge",
-      "adjusted_effect": 0.82,
+      "adjusted_effect": 0.52,
       "confidence": 0.85,
-      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match.",
       "cache_strategy": "stale_while_revalidate",
-      "recommended_ttl_seconds": 1800,
+      "recommended_ttl_seconds": 300,
       "pre_warm_routes": [
         "/api/v1/live",
         "/api/v1/scoreboard",
@@ -310,11 +312,11 @@
     {
       "category": "sports",
       "traffic_pattern": "pre_event_surge",
-      "adjusted_effect": 0.82,
+      "adjusted_effect": 0.52,
       "confidence": 0.85,
-      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match.",
       "cache_strategy": "stale_while_revalidate",
-      "recommended_ttl_seconds": 1800,
+      "recommended_ttl_seconds": 300,
       "pre_warm_routes": [
         "/api/v1/live",
         "/api/v1/scoreboard",
@@ -373,11 +375,11 @@
     {
       "category": "sports",
       "traffic_pattern": "pre_event_surge",
-      "adjusted_effect": 0.52,
+      "adjusted_effect": 0.82,
       "confidence": 0.85,
-      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match.",
+      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match. (Boosted based on CacheManager Self-Critic feedback)",
       "cache_strategy": "stale_while_revalidate",
-      "recommended_ttl_seconds": 300,
+      "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
         "/api/v1/live",
         "/api/v1/scoreboard",
@@ -640,9 +642,9 @@
     {
       "category": "music_culture",
       "traffic_pattern": "post_event_spike",
-      "adjusted_effect": 0.93,
+      "adjusted_effect": 0.62,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -662,7 +664,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -720,9 +722,9 @@
     {
       "category": "music_culture",
       "traffic_pattern": "post_event_spike",
-      "adjusted_effect": 0.75,
+      "adjusted_effect": 1.05,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -762,7 +764,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -962,7 +964,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -1020,7 +1022,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -1038,11 +1040,11 @@
     {
       "category": "other",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 0.89,
+      "adjusted_effect": 0.59,
       "confidence": 0.75,
-      "reasoning": "Heuristic fallback analysis based on keyword pattern. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Heuristic fallback analysis based on keyword pattern.",
       "cache_strategy": "standard",
-      "recommended_ttl_seconds": 1800,
+      "recommended_ttl_seconds": 900,
       "pre_warm_routes": [
         "/api/v1/feed",
         "/api/v1/status"
@@ -1059,7 +1061,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -1159,7 +1161,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -1373,7 +1375,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -1393,7 +1395,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -1413,7 +1415,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -1433,9 +1435,9 @@
       "traffic_pattern": "pre_event_surge",
       "adjusted_effect": 3.0,
       "confidence": 0.85,
-      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match.",
       "cache_strategy": "stale_while_revalidate",
-      "recommended_ttl_seconds": 1800,
+      "recommended_ttl_seconds": 300,
       "pre_warm_routes": [
         "/api/v1/live",
         "/api/v1/scoreboard",
@@ -1473,7 +1475,7 @@
       "traffic_pattern": "post_event_spike",
       "adjusted_effect": 3.0,
       "confidence": 0.8,
-      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Cultural/entertainment event with heavy ticket verification and venue check requests.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 1800,
       "pre_warm_routes": [
@@ -1594,11 +1596,11 @@
     {
       "category": "sports",
       "traffic_pattern": "pre_event_surge",
-      "adjusted_effect": 1.2,
+      "adjusted_effect": 0.9,
       "confidence": 0.85,
-      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match.",
       "cache_strategy": "stale_while_revalidate",
-      "recommended_ttl_seconds": 1800,
+      "recommended_ttl_seconds": 300,
       "pre_warm_routes": [
         "/api/v1/live",
         "/api/v1/scoreboard",
@@ -1741,9 +1743,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.3,
+      "adjusted_effect": 1.0,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -1930,9 +1932,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.0,
+      "adjusted_effect": 1.3,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -1951,9 +1953,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.3,
+      "adjusted_effect": 1.0,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -2014,9 +2016,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.0,
+      "adjusted_effect": 1.3,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -2350,9 +2352,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.3,
+      "adjusted_effect": 1.0,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -2392,9 +2394,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.3,
+      "adjusted_effect": 1.0,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -2413,9 +2415,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.3,
+      "adjusted_effect": 1.0,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -2581,9 +2583,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 0.9,
+      "adjusted_effect": 0.6,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -2770,9 +2772,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 0.6,
+      "adjusted_effect": 0.9,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -2791,9 +2793,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 0.9,
+      "adjusted_effect": 0.6,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -2854,9 +2856,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 0.6,
+      "adjusted_effect": 0.9,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -3190,9 +3192,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 0.9,
+      "adjusted_effect": 0.6,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -3232,9 +3234,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 0.9,
+      "adjusted_effect": 0.6,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -3253,9 +3255,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 0.9,
+      "adjusted_effect": 0.6,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -3379,9 +3381,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.5,
+      "adjusted_effect": 1.8,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -3400,9 +3402,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.8,
+      "adjusted_effect": 1.5,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
@@ -3463,9 +3465,9 @@
     {
       "category": "commercial",
       "traffic_pattern": "sustained_surge",
-      "adjusted_effect": 1.5,
+      "adjusted_effect": 1.8,
       "confidence": 0.9,
-      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended.",
+      "reasoning": "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended. (Boosted based on CacheManager Self-Critic feedback)",
       "cache_strategy": "aggressive_precache",
       "recommended_ttl_seconds": 3600,
       "pre_warm_routes": [
