@@ -1,19 +1,13 @@
 #!/usr/bin/env python3
 """
-Módulo de Integração com Google Gemini (LLM) para Análise Inteligente de Eventos
-e Geração de Diretivas para o Cache Manager do Servidor.
-
-Suporta:
-- Chamada direta via API REST do Gemini (sem necessidade de SDKs pesados adicionais).
-- Modo Heurístico Automático (Fallback) se GEMINI_API_KEY não estiver definida ou falhar,
-  garantindo que o sistema é 100% funcional imediatamente.
-- Exportação de diretivas de cache estruturadas para o futuro `cache_manager`.
+Google Gemini AI Integration Module for Intelligent Event Analysis
+and Cache Manager Directive Generation.
 """
 import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import requests
 
@@ -25,260 +19,231 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
 def is_gemini_active() -> bool:
-    """Verifica se a chave da API do Gemini está configurada."""
     return bool(GEMINI_API_KEY)
 
 
-def _analise_heuristica_fallback(evento: Any) -> Dict[str, Any]:
-    """
-    Fallback heurístico inteligente para quando a API do Gemini não estiver configurada
-    ou ocorrer erro de rede. Garante que o pipeline nunca quebra e continua funcional.
-    """
-    desc = getattr(evento, "descricao", "").lower()
-    pais = getattr(evento, "pais", "")
-    efeito_base = float(getattr(evento, "efeito", 0.5))
+def _heuristic_fallback_analysis(event: Any) -> Dict[str, Any]:
+    """Fallback heuristics used when GEMINI_API_KEY is not set or network fails."""
+    desc = getattr(event, "description", "").lower()
+    base_effect = float(getattr(event, "effect", 0.5))
 
-    categoria = "outro"
-    padrao = "alta_sustentada"
-    estrategia = "padrao"
+    category = "other"
+    traffic_pattern = "sustained_surge"
+    cache_strategy = "standard"
     ttl = 900
-    rotas = ["/api/v1/feed", "/api/v1/status"]
-    confianca = 0.75
-    razao = "Análise heurística de fallback baseada no tipo de evento."
+    routes = ["/api/v1/feed", "/api/v1/status"]
+    confidence = 0.75
+    reasoning = "Heuristic fallback analysis based on keyword pattern."
 
-    if any(k in desc for k in ["black friday", "cyber monday", "campanha", "promo", "lançamento"]):
-        categoria = "comercial"
-        padrao = "alta_sustentada"
-        estrategia = "pre_cache_agressivo"
+    if any(k in desc for k in ["black friday", "cyber monday", "campaign", "promo", "launch"]):
+        category = "commercial"
+        traffic_pattern = "sustained_surge"
+        cache_strategy = "aggressive_precache"
         ttl = 3600
-        rotas = ["/api/v1/produtos", "/api/v1/catalogo", "/api/v1/promocoes", "/api/v1/checkout"]
-        confianca = 0.90
-        razao = "Evento comercial de grande volume; recomenda-se pré-aquecimento agressivo de catálogo."
-    elif any(k in desc for k in ["vs", "cl", "pl", "derby", "futebol", "champions", "taça", "cup"]):
-        categoria = "desporto"
-        padrao = "pico_pre_evento"
-        estrategia = "stale_while_revalidate"
+        routes = ["/api/v1/products", "/api/v1/catalog", "/api/v1/promotions", "/api/v1/checkout"]
+        confidence = 0.90
+        reasoning = "High-volume commercial event; aggressive pre-caching of catalog and checkout is recommended."
+    elif any(k in desc for k in ["vs", "cl", "pl", "derby", "football", "champions", "cup", "league"]):
+        category = "sports"
+        traffic_pattern = "pre_event_surge"
+        cache_strategy = "stale_while_revalidate"
         ttl = 300
-        rotas = ["/api/v1/live", "/api/v1/placar", "/api/v1/stream", "/api/v1/noticias"]
-        confianca = 0.85
-        razao = "Evento desportivo gera picos concentrados imediatamente antes e ao intervalo."
-    elif any(k in desc for k in ["concert", "concerto", "festival", "show", "stadium", "arena"]):
-        categoria = "musica_cultura"
-        padrao = "pico_pos_evento"
-        estrategia = "pre_cache_agressivo"
+        routes = ["/api/v1/live", "/api/v1/scoreboard", "/api/v1/stream", "/api/v1/news"]
+        confidence = 0.85
+        reasoning = "Live sports match causes sharp spikes before kickoff, during halftime, and immediately post-match."
+    elif any(k in desc for k in ["concert", "festival", "show", "stadium", "arena", "tour"]):
+        category = "music_culture"
+        traffic_pattern = "post_event_spike"
+        cache_strategy = "aggressive_precache"
         ttl = 1800
-        rotas = ["/api/v1/bilhetes", "/api/v1/recintos", "/api/v1/agenda"]
-        confianca = 0.80
-        razao = "Espetáculo cultural ao vivo; picos de consulta de acessos e ingressos."
-    elif any(k in desc for k in ["greve", "strike", "protesto", "tempestade", "alerta"]):
-        categoria = "interrupcao_regional"
-        padrao = "alta_sustentada"
-        estrategia = "bypass_dinamico"
+        routes = ["/api/v1/tickets", "/api/v1/venues", "/api/v1/schedule"]
+        confidence = 0.80
+        reasoning = "Cultural/entertainment event with heavy ticket verification and venue check requests."
+    elif any(k in desc for k in ["strike", "protest", "storm", "alert", "disruption"]):
+        category = "regional_disruption"
+        traffic_pattern = "sustained_surge"
+        cache_strategy = "dynamic_bypass"
         ttl = 120
-        rotas = ["/api/v1/alertas", "/api/v1/transportes", "/api/v1/noticias"]
-        confianca = 0.85
-        razao = "Interrupção de serviços públicos; forte aumento de pedidos de informação em tempo real."
+        routes = ["/api/v1/alerts", "/api/v1/transit", "/api/v1/news"]
+        confidence = 0.85
+        reasoning = "Public disruption creates continuous demand for real-time status updates."
 
     return {
-        "categoria": categoria,
-        "padrao_trafego": padrao,
-        "efeito_ajustado": round(efeito_base, 2),
-        "confianca": confianca,
-        "razao": razao,
-        "estrategia_cache": estrategia,
-        "ttl_segundos_recomendado": ttl,
-        "rotas_pre_aquecer": rotas,
-        "analisado_por": "heuristica_local",
+        "category": category,
+        "traffic_pattern": traffic_pattern,
+        "adjusted_effect": round(base_effect, 2),
+        "confidence": confidence,
+        "reasoning": reasoning,
+        "cache_strategy": cache_strategy,
+        "recommended_ttl_seconds": ttl,
+        "pre_warm_routes": routes,
+        "analyzed_by": "local_heuristic",
     }
 
 
-def analisar_eventos_com_gemini(eventos: List[Any]) -> List[Dict[str, Any]]:
-    """
-    Submete a lista de eventos à API do Gemini para enriquecimento semântico,
-    avaliação do comportamento de tráfego e diretivas de cache.
-
-    Se GEMINI_API_KEY não estiver definida, usa fallback heurístico transparente.
-    """
-    if not eventos:
+def analyze_events_with_gemini(events: List[Any]) -> List[Dict[str, Any]]:
+    """Analyzes events using Gemini AI LLM. Falls back cleanly to heuristics if key is unset."""
+    if not events:
         return []
 
     if not GEMINI_API_KEY:
-        log.info("Gemini AI: GEMINI_API_KEY não definida. A usar análise heurística interna (defina GEMINI_API_KEY para ativar LLM).")
-        resultados = []
-        for ev in eventos:
-            analise = _analise_heuristica_fallback(ev)
-            analise["evento_descricao"] = ev.descricao
-            analise["pais"] = ev.pais
-            analise["inicio_utc"] = ev.inicio.isoformat()
-            analise["fim_utc"] = ev.fim.isoformat()
-            analise["fonte"] = getattr(ev, "fonte", "desconhecida")
-            resultados.append(analise)
-        return resultados
+        log.info("Gemini AI: GEMINI_API_KEY not set. Using local heuristic analysis (set GEMINI_API_KEY to enable LLM).")
+        results = []
+        for ev in events:
+            analysis = _heuristic_fallback_analysis(ev)
+            analysis["event_description"] = ev.description
+            analysis["country"] = ev.country
+            analysis["start_utc"] = ev.start.isoformat()
+            analysis["end_utc"] = ev.end.isoformat()
+            analysis["source"] = getattr(ev, "source", "unknown")
+            results.append(analysis)
+        return results
 
-    # Preparar payload para o Gemini
-    eventos_simplificados = [
+    simplified_events = [
         {
             "id": idx,
-            "descricao": ev.descricao,
-            "pais": ev.pais,
-            "inicio_utc": ev.inicio.isoformat(),
-            "fim_utc": ev.fim.isoformat(),
-            "efeito_estimado_inicial": ev.efeito,
-            "fonte": getattr(ev, "fonte", "desconhecida"),
+            "description": ev.description,
+            "country": ev.country,
+            "start_utc": ev.start.isoformat(),
+            "end_utc": ev.end.isoformat(),
+            "initial_estimated_effect": ev.effect,
+            "source": getattr(ev, "source", "unknown"),
         }
-        for idx, ev in enumerate(eventos)
+        for idx, ev in enumerate(events)
     ]
 
     prompt = f"""
-Tu és um especialista em infraestrutura cloud, dimensionamento de servidores e estratégias de cache HTTP / Redis para serviços digitais na Europa.
+You are a cloud infrastructure, server capacity, and HTTP/Redis caching specialist for digital services in Europe.
 
-Analisa a seguinte lista de eventos e avalia o impacto real no tráfego de servidores e na gestão de cache:
-{json.dumps(eventos_simplificados, indent=2, ensure_ascii=False)}
+Analyze the following list of European regional and national events to assess their infrastructure traffic impact and cache requirements:
+{json.dumps(simplified_events, indent=2, ensure_ascii=False)}
 
-Para CADA evento (mantendo o respetivo 'id'), devolve um objeto JSON com:
-- "id": id do evento
-- "categoria": uma de ["desporto", "musica_cultura", "comercial", "interrupcao_regional", "politica_social", "outro"]
-- "padrao_trafego": um de ["pico_pre_evento", "queda_durante_evento", "pico_pos_evento", "alta_sustentada"]
-- "efeito_ajustado": número float entre -1.0 e 3.0 (ex: 0.8 = +80% tráfego, -0.4 = quebra de 40%)
-- "confianca": float entre 0.0 e 1.0
-- "razao": explicação concisa (máximo 1 frase em português)
-- "estrategia_cache": uma de ["pre_cache_agressivo", "stale_while_revalidate", "bypass_dinamico", "padrao"]
-- "ttl_segundos_recomendado": inteiro (ex: 120, 300, 1800, 3600)
-- "rotas_pre_aquecer": lista com 2 a 4 endpoints URL típicos recomendados para pré-aquecer na cache
+For EACH event (matching its 'id'), return a JSON object with:
+- "id": event id
+- "category": one of ["sports", "music_culture", "commercial", "regional_disruption", "social_political", "other"]
+- "traffic_pattern": one of ["pre_event_surge", "in_event_dip", "post_event_spike", "sustained_surge"]
+- "adjusted_effect": float between -1.0 and 3.0 (e.g. 0.8 means +80% traffic, -0.4 means 40% drop)
+- "confidence": float between 0.0 and 1.0
+- "reasoning": 1 concise sentence explanation
+- "cache_strategy": one of ["aggressive_precache", "stale_while_revalidate", "dynamic_bypass", "standard"]
+- "recommended_ttl_seconds": integer (e.g. 120, 300, 1800, 3600)
+- "pre_warm_routes": list of 2-4 API route patterns to pre-load into cache
 
-Devolve uma lista de objetos JSON correspondente.
+Return a JSON array of objects.
 """
-
     endpoint = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "temperature": 0.2,
-        },
+        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2},
     }
 
     try:
-        log.info("Gemini AI: a analisar %d eventos via modelo %s...", len(eventos), GEMINI_MODEL)
+        log.info("Gemini AI: Analyzing %d events via model %s...", len(events), GEMINI_MODEL)
         resp = requests.post(endpoint, headers=headers, json=body, timeout=25)
         resp.raise_for_status()
-        data = resp.json()
+        raw_items = json.loads(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+        ai_map = {item["id"]: item for item in raw_items if "id" in item}
 
-        raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
-        itens_ia = json.loads(raw_text)
+        results = []
+        for idx, ev in enumerate(events):
+            item_ai = ai_map.get(idx) or _heuristic_fallback_analysis(ev)
+            item_ai["analyzed_by"] = f"gemini_{GEMINI_MODEL}"
+            item_ai["event_description"] = ev.description
+            item_ai["country"] = ev.country
+            item_ai["start_utc"] = ev.start.isoformat()
+            item_ai["end_utc"] = ev.end.isoformat()
+            item_ai["source"] = getattr(ev, "source", "unknown")
+            results.append(item_ai)
 
-        # Mapear de volta por ID
-        mapa_ia = {item["id"]: item for item in itens_ia if "id" in item}
-
-        resultados = []
-        for idx, ev in enumerate(eventos):
-            ia = mapa_ia.get(idx)
-            if not ia:
-                ia = _analise_heuristica_fallback(ev)
-            else:
-                ia["analisado_por"] = f"gemini_{GEMINI_MODEL}"
-
-            ia["evento_descricao"] = ev.descricao
-            ia["pais"] = ev.pais
-            ia["inicio_utc"] = ev.inicio.isoformat()
-            ia["fim_utc"] = ev.fim.isoformat()
-            ia["fonte"] = getattr(ev, "fonte", "desconhecida")
-            resultados.append(ia)
-
-        log.info("Gemini AI: análise de eventos concluída com sucesso.")
-        return resultados
+        log.info("Gemini AI: Event analysis completed successfully.")
+        return results
 
     except Exception as e:
-        log.warning("Gemini AI falhou (%s). A recorrer à heurística de fallback.", e)
-        resultados = []
-        for ev in eventos:
-            analise = _analise_heuristica_fallback(ev)
-            analise["evento_descricao"] = ev.descricao
-            analise["pais"] = ev.pais
-            analise["inicio_utc"] = ev.inicio.isoformat()
-            analise["fim_utc"] = ev.fim.isoformat()
-            analise["fonte"] = getattr(ev, "fonte", "desconhecida")
-            resultados.append(analise)
-        return resultados
+        log.warning("Gemini AI request failed (%s). Falling back to heuristic analysis.", e)
+        results = []
+        for ev in events:
+            analysis = _heuristic_fallback_analysis(ev)
+            analysis["event_description"] = ev.description
+            analysis["country"] = ev.country
+            analysis["start_utc"] = ev.start.isoformat()
+            analysis["end_utc"] = ev.end.isoformat()
+            analysis["source"] = getattr(ev, "source", "unknown")
+            results.append(analysis)
+        return results
 
 
-def exportar_para_cache_manager(
-    caminho_saida: os.PathLike,
-    agora: Any,
-    deployments_resultado: Dict[str, Any],
-    eventos_analisados: List[Dict[str, Any]],
+def export_to_cache_manager(
+    output_path: os.PathLike,
+    now: Any,
+    deployments_result: Dict[str, Any],
+    analyzed_events: List[Dict[str, Any]],
     dry_run: bool = True,
 ) -> None:
-    """
-    Exporta a estrutura final em formato JSON padronizado para consumo
-    pelo futuro cache_manager.
-    """
-    diretivas_por_zona = {}
+    """Exports structured JSON file for consumption by the downstream cache manager."""
+    zone_directives = {}
 
-    for nome_dep, dados_dep in deployments_resultado.items():
-        # Encontrar eventos relevantes para esta zona
-        eventos_zona = [
-            ev for ev in eventos_analisados
-            if ev.get("pais") in dados_dep.get("paises_cobertos", [])
+    for dep_name, dep_data in deployments_result.items():
+        zone_events = [
+            ev for ev in analyzed_events
+            if ev.get("country") in dep_data.get("covered_countries", [])
         ]
 
-        # Determinar estratégia dominante de cache para a zona
-        estrategia_dominante = "padrao"
-        ttl_recomendado = 900
-        rotas_a_aquecer = set()
+        dominant_strategy = "standard"
+        recommended_ttl = 900
+        routes_to_warm = set()
 
-        if dados_dep.get("multiplicador", 1.0) >= 1.5:
-            estrategia_dominante = "pre_cache_agressivo"
-            ttl_recomendado = 3600
-        elif dados_dep.get("multiplicador", 1.0) >= 1.2:
-            estrategia_dominante = "stale_while_revalidate"
-            ttl_recomendado = 1800
+        if dep_data.get("multiplier", 1.0) >= 1.5:
+            dominant_strategy = "aggressive_precache"
+            recommended_ttl = 3600
+        elif dep_data.get("multiplier", 1.0) >= 1.2:
+            dominant_strategy = "stale_while_revalidate"
+            recommended_ttl = 1800
 
-        for ez in eventos_zona:
-            for r in ez.get("rotas_pre_aquecer", []):
-                rotas_a_aquecer.add(r)
-            if ez.get("estrategia_cache") == "pre_cache_agressivo":
-                estrategia_dominante = "pre_cache_agressivo"
-                ttl_recomendado = max(ttl_recomendado, ez.get("ttl_segundos_recomendado", 1800))
+        for ze in zone_events:
+            for r in ze.get("pre_warm_routes", []):
+                routes_to_warm.add(r)
+            if ze.get("cache_strategy") == "aggressive_precache":
+                dominant_strategy = "aggressive_precache"
+                recommended_ttl = max(recommended_ttl, ze.get("recommended_ttl_seconds", 1800))
 
-        diretivas_por_zona[nome_dep] = {
-            "aws_region": dados_dep.get("aws_region"),
-            "function": dados_dep.get("function"),
-            "status_preaquecimento": "pico_previsto" if dados_dep.get("multiplicador", 1.0) > 1.2 else "normal",
-            "multiplicador_trafego": dados_dep.get("multiplicador", 1.0),
-            "capacidade_alvo_lambda": dados_dep.get("alvo_pc", 0),
-            "capacidade_atual_lambda": dados_dep.get("atual_pc", 0),
-            "diretiva_cache": {
-                "estrategia_recomendada": estrategia_dominante,
-                "ttl_segundos_recomendado": ttl_recomendado,
-                "stale_while_revalidate_segundos": 120,
-                "rotas_pre_carregar": sorted(list(rotas_a_aquecer)),
-                "prioridade_evicao": "proteger_rotas_em_pico",
+        zone_directives[dep_name] = {
+            "aws_region": dep_data.get("aws_region"),
+            "function": dep_data.get("function"),
+            "prewarm_status": "peak_expected" if dep_data.get("multiplier", 1.0) > 1.2 else "normal",
+            "traffic_multiplier": dep_data.get("multiplier", 1.0),
+            "target_lambda_concurrency": dep_data.get("target_pc", 0),
+            "current_lambda_concurrency": dep_data.get("current_pc", 0),
+            "cache_directive": {
+                "recommended_strategy": dominant_strategy,
+                "recommended_ttl_seconds": recommended_ttl,
+                "stale_while_revalidate_seconds": 120,
+                "pre_warm_routes": sorted(list(routes_to_warm)),
+                "eviction_priority": "protect_hot_routes",
             },
         }
 
-    documento_cache = {
-        "timestamp_utc": agora.isoformat(),
-        "versao_gerador": "2.0-gemini-ai",
+    cache_document = {
+        "timestamp_utc": now.isoformat(),
+        "generator_version": "2.0-gemini-ai",
         "dry_run": dry_run,
-        "ia_status": {
-            "gemini_ativo": is_gemini_active(),
-            "modelo": GEMINI_MODEL if is_gemini_active() else "fallback_heuristico",
+        "ai_status": {
+            "gemini_active": is_gemini_active(),
+            "model": GEMINI_MODEL if is_gemini_active() else "heuristic_fallback",
         },
-        "deployments": diretivas_por_zona,
-        "eventos_processados": eventos_analisados,
-        "instrucoes_cache_manager": {
-            "acao_sugerida": "aquecer_cache_nas_zonas_em_pico",
-            "tempo_antecedencia_minutos": 20,
-            "descricao": "Dados prontos para consumo por cache_manager HTTP/Redis.",
+        "deployments": zone_directives,
+        "processed_events": analyzed_events,
+        "cache_manager_instructions": {
+            "recommended_action": "warm_cache_for_peak_zones",
+            "lead_time_minutes": 20,
+            "description": "Ready-to-consume directives for HTTP/Redis cache_manager.",
         },
     }
 
     try:
-        caminho = Path(caminho_saida)
-        caminho.parent.mkdir(parents=True, exist_ok=True)
-        caminho.write_text(json.dumps(documento_cache, indent=2, ensure_ascii=False))
-        log.info("Cache Manager: dados gravados com sucesso em %s", caminho)
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(cache_document, indent=2, ensure_ascii=False))
+        log.info("Cache Manager: Exported directives successfully to %s", path)
     except OSError as e:
-        log.error("Cache Manager: erro ao gravar ficheiro JSON (%s)", e)
+        log.error("Cache Manager: Failed to save JSON file (%s)", e)

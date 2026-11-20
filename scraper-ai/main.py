@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """
-Pré-aquecimento (provisioned concurrency) de servidores AWS Lambda e Geração de
-Diretivas de Cache por zona da Europa, integrando Google Gemini AI.
+AWS Lambda Provisioned Concurrency Pre-Warming & Server Cache Directives Engine
+across European zones, powered by Google Gemini AI event analysis.
 
-Capacidade alvo = perfil histórico real (CloudWatch / Baseline)
-                  x efeito dos eventos ativos em cada PAÍS (avaliados por Gemini AI),
-                    ponderado pelo peso do país no tráfego do deployment
-                  + ajuste por feriados nacionais (usa o perfil de domingo)
+Target Capacity = Historical Profile (CloudWatch / Realistic Baseline)
+                  x Country Event Effect (analyzed by Gemini AI), weighted by country share
+                  + National Holiday adjustment (Sunday profile fallback)
 
-Fontes de eventos (cada uma é opcional e falha isoladamente):
-  futebol       football-data.org   FOOTBALL_API_KEY       gratuita (12 competições)
-  predicthq     PredictHQ           PREDICTHQ_TOKEN        paga (14 dias de teste)
-  ticketmaster  Ticketmaster        TICKETMASTER_API_KEY   gratuita: concertos
-  manual        ficheiro JSON       EVENTOS_MANUAIS        Black Friday, campanhas, lançamentos, greves
-  feriados      biblioteca `holidays` (offline, sem chave)
-  gemini        Google Gemini AI    GEMINI_API_KEY         análise semântica e estratégias de cache
+Event Sources:
+  football      football-data.org   FOOTBALL_API_KEY       Free tier (12 competitions)
+  predicthq     PredictHQ           PREDICTHQ_TOKEN        Paid (14-day trial): concerts, sports
+  ticketmaster  Ticketmaster        TICKETMASTER_API_KEY   Free tier: concerts
+  manual        JSON file           MANUAL_EVENTS          Unstructured promotions, campaigns, launches
+  holidays      `holidays` package  (Offline, no key)
+  gemini        Google Gemini AI    GEMINI_API_KEY         Semantic analysis and caching strategy
 
-Exporta para: cache_manager_feed.json (consumível por futuro cache_manager)
+Outputs to: cache_manager_feed.json (ready for downstream cache manager)
 """
 import datetime as dt
 import json
@@ -46,17 +45,17 @@ try:
 except ImportError:
     holidays = None
 
-# Integração com o módulo de IA Gemini
+# Gemini AI integration
 try:
     from gemini_analyzer import (
-        analisar_eventos_com_gemini,
-        exportar_para_cache_manager,
+        analyze_events_with_gemini,
+        export_to_cache_manager,
         is_gemini_active,
     )
 except ImportError:
     from .gemini_analyzer import (
-        analisar_eventos_com_gemini,
-        exportar_para_cache_manager,
+        analyze_events_with_gemini,
+        export_to_cache_manager,
         is_gemini_active,
     )
 
@@ -67,33 +66,32 @@ DRY_RUN = os.environ.get("DRY_RUN", "1") != "0"
 CACHE_DIR = Path(os.environ.get("CACHE_DIR", "/tmp"))
 
 # ----------------------------------------------------------------------------
-# PARÂMETROS GERAIS. Calibra com os teus picos reais.
+# General Tuning Parameters
 # ----------------------------------------------------------------------------
-HEADROOM = 1.3          # margem de segurança sobre a previsão
-LEAD_MIN = 20           # olha 20 min à frente (provisionar demora alguns minutos)
-HISTERESE = 0.15        # ignora mudanças < 15% (evita oscilar)
-MAX_BOOST, MIN_MULT = 4.0, 0.3   # limites do multiplicador final
-EFEITO_MIN = 0.50       # eventos com |efeito| abaixo disto são ignorados
-EFEITO_MAX = 3.0        # teto do efeito de um evento
-DIA_PERFIL_FERIADO = 6  # em feriado usa o perfil de domingo (0=segunda ... 6=domingo)
+HEADROOM = 1.3          # 30% safety headroom above forecasted concurrency
+LEAD_MIN = 20           # Look-ahead window in minutes (provisioning takes a few minutes)
+HYSTERESIS = 0.15       # Ignore changes under 15% to prevent oscillation
+MAX_BOOST, MIN_MULT = 4.0, 0.3
+MIN_EFFECT = 0.50       # Ignore events below this absolute effect
+MAX_EFFECT = 3.0        # Cap maximum individual event effect
+HOLIDAY_PROFILE_DAY = 6 # Use Sunday profile (6) during national holidays
 
-# Sinal e escala por fonte
-FATOR_FONTE = {"futebol": 1.0, "predicthq": 1.0, "ticketmaster": 1.0, "manual": 1.0}
+SOURCE_WEIGHTS = {"football": 1.0, "predicthq": 1.0, "ticketmaster": 1.0, "manual": 1.0}
 
-PRE_EVENTO = dt.timedelta(minutes=30)
-DURACAO_JOGO = dt.timedelta(hours=2, minutes=15)           # inclui intervalo e pós-jogo
-DURACAO_ELIMINATORIA = dt.timedelta(hours=3, minutes=15)   # prolongamento/penáltis
+PRE_EVENT_WINDOW = dt.timedelta(minutes=30)
+REGULAR_MATCH_DURATION = dt.timedelta(hours=2, minutes=15)
+KNOCKOUT_MATCH_DURATION = dt.timedelta(hours=3, minutes=15)
 
 # ----------------------------------------------------------------------------
-# PAÍSES -> zona de audiência, peso (população proxy), fuso horário, nomes
+# Countries: Zone, Population Weight, Timezone, Aliases
 # ----------------------------------------------------------------------------
-PAISES = {
-    "PT": ("oeste", 10.4, "Europe/Lisbon", ["portugal"]),
-    "ES": ("oeste", 48.0, "Europe/Madrid", ["spain"]),
-    "FR": ("oeste", 68.0, "Europe/Paris", ["france"]),
-    "BE": ("oeste", 11.8, "Europe/Brussels", ["belgium"]),
-    "NL": ("oeste", 17.9, "Europe/Amsterdam", ["netherlands"]),
-    "LU": ("oeste", 0.7, "Europe/Luxembourg", ["luxembourg"]),
+COUNTRIES = {
+    "PT": ("west", 10.4, "Europe/Lisbon", ["portugal"]),
+    "ES": ("west", 48.0, "Europe/Madrid", ["spain"]),
+    "FR": ("west", 68.0, "Europe/Paris", ["france"]),
+    "BE": ("west", 11.8, "Europe/Brussels", ["belgium"]),
+    "NL": ("west", 17.9, "Europe/Amsterdam", ["netherlands"]),
+    "LU": ("west", 0.7, "Europe/Luxembourg", ["luxembourg"]),
     "DE": ("central", 84.0, "Europe/Berlin", ["germany"]),
     "AT": ("central", 9.1, "Europe/Vienna", ["austria"]),
     "CH": ("central", 8.8, "Europe/Zurich", ["switzerland"]),
@@ -101,108 +99,102 @@ PAISES = {
     "CZ": ("central", 10.9, "Europe/Prague", ["czech republic", "czechia"]),
     "SK": ("central", 5.4, "Europe/Bratislava", ["slovakia"]),
     "HU": ("central", 9.6, "Europe/Budapest", ["hungary"]),
-    "GB": ("norte", 68.0, "Europe/London",
+    "GB": ("north", 68.0, "Europe/London",
            ["england", "scotland", "wales", "northern ireland", "united kingdom"]),
-    "IE": ("norte", 5.3, "Europe/Dublin", ["ireland", "republic of ireland"]),
-    "SE": ("norte", 10.5, "Europe/Stockholm", ["sweden"]),
-    "NO": ("norte", 5.5, "Europe/Oslo", ["norway"]),
-    "DK": ("norte", 5.9, "Europe/Copenhagen", ["denmark"]),
-    "FI": ("norte", 5.6, "Europe/Helsinki", ["finland"]),
-    "IS": ("norte", 0.4, "Atlantic/Reykjavik", ["iceland"]),
-    "EE": ("norte", 1.4, "Europe/Tallinn", ["estonia"]),
-    "LV": ("norte", 1.9, "Europe/Riga", ["latvia"]),
-    "LT": ("norte", 2.8, "Europe/Vilnius", ["lithuania"]),
-    "IT": ("sul_este", 59.0, "Europe/Rome", ["italy"]),
-    "GR": ("sul_este", 10.4, "Europe/Athens", ["greece"]),
-    "RO": ("sul_este", 19.0, "Europe/Bucharest", ["romania"]),
-    "BG": ("sul_este", 6.5, "Europe/Sofia", ["bulgaria"]),
-    "TR": ("sul_este", 85.0, "Europe/Istanbul", ["turkey", "türkiye"]),
-    "CY": ("sul_este", 1.3, "Asia/Nicosia", ["cyprus"]),
-    "MT": ("sul_este", 0.5, "Europe/Malta", ["malta"]),
-    "UA": ("sul_este", 38.0, "Europe/Kyiv", ["ukraine"]),
-    "MD": ("sul_este", 2.6, "Europe/Chisinau", ["moldova"]),
-    "RS": ("balcas", 6.7, "Europe/Belgrade", ["serbia"]),
-    "HR": ("balcas", 3.9, "Europe/Zagreb", ["croatia"]),
-    "BA": ("balcas", 3.2, "Europe/Sarajevo", ["bosnia-herzegovina", "bosnia and herzegovina"]),
-    "ME": ("balcas", 0.6, "Europe/Podgorica", ["montenegro"]),
-    "MK": ("balcas", 1.8, "Europe/Skopje", ["north macedonia", "macedonia"]),
-    "AL": ("balcas", 2.8, "Europe/Tirane", ["albania"]),
-    "SI": ("balcas", 2.1, "Europe/Ljubljana", ["slovenia"]),
-    "XK": ("balcas", 1.8, "Europe/Belgrade", ["kosovo"]),
+    "IE": ("north", 5.3, "Europe/Dublin", ["ireland", "republic of ireland"]),
+    "SE": ("north", 10.5, "Europe/Stockholm", ["sweden"]),
+    "NO": ("north", 5.5, "Europe/Oslo", ["norway"]),
+    "DK": ("north", 5.9, "Europe/Copenhagen", ["denmark"]),
+    "FI": ("north", 5.6, "Europe/Helsinki", ["finland"]),
+    "IS": ("north", 0.4, "Atlantic/Reykjavik", ["iceland"]),
+    "EE": ("north", 1.4, "Europe/Tallinn", ["estonia"]),
+    "LV": ("north", 1.9, "Europe/Riga", ["latvia"]),
+    "LT": ("north", 2.8, "Europe/Vilnius", ["lithuania"]),
+    "IT": ("south_east", 59.0, "Europe/Rome", ["italy"]),
+    "GR": ("south_east", 10.4, "Europe/Athens", ["greece"]),
+    "RO": ("south_east", 19.0, "Europe/Bucharest", ["romania"]),
+    "BG": ("south_east", 6.5, "Europe/Sofia", ["bulgaria"]),
+    "TR": ("south_east", 85.0, "Europe/Istanbul", ["turkey", "türkiye"]),
+    "CY": ("south_east", 1.3, "Asia/Nicosia", ["cyprus"]),
+    "MT": ("south_east", 0.5, "Europe/Malta", ["malta"]),
+    "UA": ("south_east", 38.0, "Europe/Kyiv", ["ukraine"]),
+    "MD": ("south_east", 2.6, "Europe/Chisinau", ["moldova"]),
+    "RS": ("balkans", 6.7, "Europe/Belgrade", ["serbia"]),
+    "HR": ("balkans", 3.9, "Europe/Zagreb", ["croatia"]),
+    "BA": ("balkans", 3.2, "Europe/Sarajevo", ["bosnia-herzegovina", "bosnia and herzegovina"]),
+    "ME": ("balkans", 0.6, "Europe/Podgorica", ["montenegro"]),
+    "MK": ("balkans", 1.8, "Europe/Skopje", ["north macedonia", "macedonia"]),
+    "AL": ("balkans", 2.8, "Europe/Tirane", ["albania"]),
+    "SI": ("balkans", 2.1, "Europe/Ljubljana", ["slovenia"]),
+    "XK": ("balkans", 1.8, "Europe/Belgrade", ["kosovo"]),
 }
-NOME_PARA_ISO = {n: iso for iso, (_, _, _, nomes) in PAISES.items() for n in nomes}
+NAME_TO_ISO = {n: iso for iso, (_, _, _, names) in COUNTRIES.items() for n in names}
 
-ZONA_DEPLOYMENT = {
-    "oeste": "eu-oeste",
+ZONE_DEPLOYMENT = {
+    "west": "eu-west",
     "central": "eu-central",
-    "norte": "eu-norte",
-    "sul_este": "eu-sul",
-    "balcas": "eu-sul",
+    "north": "eu-north",
+    "south_east": "eu-south",
+    "balkans": "eu-south",
 }
 
 DEPLOYMENTS = {
-    "eu-oeste":   {"aws_region": "eu-west-3",    "function": "api", "alias": "live", "min_pc": 0, "max_pc": 200},
+    "eu-west":    {"aws_region": "eu-west-3",    "function": "api", "alias": "live", "min_pc": 0, "max_pc": 200},
     "eu-central": {"aws_region": "eu-central-1", "function": "api", "alias": "live", "min_pc": 0, "max_pc": 200},
-    "eu-norte":   {"aws_region": "eu-north-1",   "function": "api", "alias": "live", "min_pc": 0, "max_pc": 200},
-    "eu-sul":     {"aws_region": "eu-south-1",   "function": "api", "alias": "live", "min_pc": 0, "max_pc": 200},
+    "eu-north":   {"aws_region": "eu-north-1",   "function": "api", "alias": "live", "min_pc": 0, "max_pc": 200},
+    "eu-south":   {"aws_region": "eu-south-1",   "function": "api", "alias": "live", "min_pc": 0, "max_pc": 200},
 }
 
 
-def _calcular_pesos():
-    por_dep = defaultdict(dict)
-    for iso, (zona, peso, _, _) in PAISES.items():
-        por_dep[ZONA_DEPLOYMENT[zona]][iso] = peso
-    return {d: {iso: p / sum(ps.values()) for iso, p in ps.items()} for d, ps in por_dep.items()}
+def _calculate_weights():
+    by_dep = defaultdict(dict)
+    for iso, (zone, weight, _, _) in COUNTRIES.items():
+        by_dep[ZONE_DEPLOYMENT[zone]][iso] = weight
+    return {d: {iso: w / sum(ws.values()) for iso, w in ws.items()} for d, ws in by_dep.items()}
 
 
-PESOS = _calcular_pesos()
+WEIGHTS = _calculate_weights()
 
-# ----------------------------------------------------------------------------
-# PARÂMETROS POR FONTE
-# ----------------------------------------------------------------------------
-COMPETICOES = {
-    "PL": (0.35, "liga"), "PD": (0.35, "liga"), "BL1": (0.35, "liga"), "SA": (0.35, "liga"),
-    "FL1": (0.35, "liga"), "PPL": (0.35, "liga"), "DED": (0.30, "liga"),
-    "CL": (0.80, "equipas"), "EC": (2.00, "equipas"), "WC": (2.00, "equipas"),
+COMPETITIONS = {
+    "PL": (0.35, "league"), "PD": (0.35, "league"), "BL1": (0.35, "league"), "SA": (0.35, "league"),
+    "FL1": (0.35, "league"), "PPL": (0.35, "league"), "DED": (0.30, "league"),
+    "CL": (0.80, "teams"), "EC": (2.00, "teams"), "WC": (2.00, "teams"),
 }
 STAGE_MULT = {"FINAL": 2.0, "SEMI_FINALS": 1.6, "QUARTER_FINALS": 1.3, "LAST_16": 1.15}
-ELIMINATORIAS = {"FINAL", "SEMI_FINALS", "QUARTER_FINALS", "LAST_16", "LAST_32",
-                 "PLAYOFFS", "THIRD_PLACE"}
-GRANDES = ("real madrid", "fc barcelona", "atlético", "benfica", "sporting clube de portugal",
-           "fc porto", "manchester united", "manchester city", "liverpool", "arsenal",
-           "chelsea", "tottenham", "bayern", "dortmund", "paris saint-germain", "juventus",
-           "internazionale", "milan", "napoli", "ajax")
+KNOCKOUT_STAGES = {"FINAL", "SEMI_FINALS", "QUARTER_FINALS", "LAST_16", "LAST_32",
+                   "PLAYOFFS", "THIRD_PLACE"}
+TOP_TEAMS = ("real madrid", "fc barcelona", "atlético", "benfica", "sporting clube de portugal",
+             "fc porto", "manchester united", "manchester city", "liverpool", "arsenal",
+             "chelsea", "tottenham", "bayern", "dortmund", "paris saint-germain", "juventus",
+             "internazionale", "milan", "napoli", "ajax")
 
-PHQ_CATEGORIAS = "sports,concerts,festivals,performing-arts,conferences,expos"
-PHQ_RANK_MIN = 60
-PHQ_EFEITO_POR_100K = 0.5
+PHQ_CATEGORIES = "sports,concerts,festivals,performing-arts,conferences,expos"
+PHQ_MIN_RANK = 60
+PHQ_EFFECT_PER_100K = 0.5
 
-TM_RECINTOS_GRANDES = ("stadium", "stadion", "stade", "estadio", "estádio", "stadio",
-                       "olympia", "wembley", "arena nacional")
-TM_EFEITO_RECINTO_GRANDE = 0.5
-TM_PAISES_RELEVANTES = ["GB", "DE", "FR", "ES", "NL", "BE", "IE", "SE", "NO", "DK", "AT", "CH", "PL", "IT", "PT"]
-
-
-# ----------------------------------------------------------------------------
-# Utilitários
-# ----------------------------------------------------------------------------
-def chave(weekday, hora):
-    return f"{weekday}-{hora}"
+TM_LARGE_VENUES = ("stadium", "stadion", "stade", "estadio", "estádio", "stadio",
+                   "olympia", "wembley", "arena")
+TM_LARGE_VENUE_EFFECT = 0.5
+TM_RELEVANT_COUNTRIES = ["GB", "DE", "FR", "ES", "NL", "BE", "IE", "SE", "NO", "DK", "AT", "CH", "PL", "IT", "PT"]
 
 
-def _cache(nome, ttl_s, produzir):
-    f = CACHE_DIR / f"prewarm_{nome}.json"
+def slot_key(weekday, hour):
+    return f"{weekday}-{hour}"
+
+
+def _cache(name, ttl_s, producer):
+    f = CACHE_DIR / f"prewarm_{name}.json"
     try:
         if time.time() - f.stat().st_mtime < ttl_s:
             return json.loads(f.read_text())
     except (OSError, ValueError):
         pass
-    dados = produzir()
+    data = producer()
     try:
-        f.write_text(json.dumps(dados))
+        f.write_text(json.dumps(data))
     except OSError as e:
-        log.warning("cache %s não gravada: %s", nome, e)
-    return dados
+        log.warning("Cache %s could not be written: %s", name, e)
+    return data
 
 
 def _parse_utc(s):
@@ -210,83 +202,79 @@ def _parse_utc(s):
 
 
 @dataclass
-class Evento:
-    pais: str            # ISO alpha-2
-    inicio: dt.datetime
-    fim: dt.datetime
-    efeito: float        # variação do tráfego: 0.5 = +50%, negativo = quebra
-    descricao: str
-    fonte: str = ""
+class Event:
+    country: str
+    start: dt.datetime
+    end: dt.datetime
+    effect: float
+    description: str
+    source: str = ""
 
 
 # ----------------------------------------------------------------------------
-# Perfil histórico (CloudWatch com Fallback Baseline de Simulação)
+# Historical Traffic Profile (CloudWatch + Realistic Baseline Simulation)
 # ----------------------------------------------------------------------------
-def _perfil_baseline_simulado():
-    """Perfil diário realista para demonstração/testes sem CloudWatch ativo."""
-    curva_hora = [
+def _simulated_baseline_profile():
+    """Generates a realistic 24-hour diurnal profile for local testing and demos."""
+    hourly_curve = [
         6.0, 4.0, 3.0, 2.5, 3.0, 5.0, 8.0, 12.0, 16.0, 19.0, 21.0, 22.0,
         25.0, 24.0, 20.0, 19.0, 21.0, 23.0, 27.0, 32.0, 35.0, 30.0, 22.0, 12.0
     ]
-    perfil = {}
+    profile = {}
     for weekday in range(7):
-        fator_dia = 0.85 if weekday >= 5 else 1.0
-        for hora in range(24):
-            perfil[chave(weekday, hora)] = round(curva_hora[hora] * fator_dia, 1)
-    return perfil
+        day_factor = 0.85 if weekday >= 5 else 1.0
+        for hour in range(24):
+            profile[slot_key(weekday, hour)] = round(hourly_curve[hour] * day_factor, 1)
+    return profile
 
 
-def perfil_historico(dep, dias=28):
-    """
-    Concorrência típica por (dia da semana, hora UTC): lei de Little por janelas de 5 min.
-    Se o CloudWatch não responder ou não tiver métricas, recorre ao perfil baseline.
-    """
+def get_historical_profile(dep, days=28):
     if boto3 is None:
-        return _perfil_baseline_simulado()
+        return _simulated_baseline_profile()
 
     try:
         cw = boto3.client("cloudwatch", region_name=dep["aws_region"])
-        fim = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0)
-        ini = fim - dt.timedelta(days=dias)
+        end = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0)
+        start = end - dt.timedelta(days=days)
         dim = [{"Name": "FunctionName", "Value": dep["function"]}]
 
-        def q(i, metrica, stat):
+        def q(i, metric, stat):
             return {"Id": i, "ReturnData": True, "MetricStat": {
-                "Metric": {"Namespace": "AWS/Lambda", "MetricName": metrica, "Dimensions": dim},
+                "Metric": {"Namespace": "AWS/Lambda", "MetricName": metric, "Dimensions": dim},
                 "Period": 300, "Stat": stat}}
 
         series = defaultdict(dict)
         for page in cw.get_paginator("get_metric_data").paginate(
                 MetricDataQueries=[q("inv", "Invocations", "Sum"), q("dur", "Duration", "Average")],
-                StartTime=ini, EndTime=fim, ScanBy="TimestampAscending"):
+                StartTime=start, EndTime=end, ScanBy="TimestampAscending"):
             for r in page["MetricDataResults"]:
                 for ts, v in zip(r["Timestamps"], r["Values"]):
                     series[r["Id"]][ts] = v
 
-        pico_hora = defaultdict(float)
+        hourly_peak = defaultdict(float)
         for ts, n in series["inv"].items():
-            seg = series["dur"].get(ts, 100.0) / 1000.0
+            duration_sec = series["dur"].get(ts, 100.0) / 1000.0
             k = (ts.date(), ts.hour)
-            pico_hora[k] = max(pico_hora[k], n / 300.0 * seg)
+            hourly_peak[k] = max(hourly_peak[k], n / 300.0 * duration_sec)
 
-        por_slot = defaultdict(list)
-        h = ini
-        while h < fim:
-            por_slot[(h.weekday(), h.hour)].append(pico_hora.get((h.date(), h.hour), 0.0))
-            h += dt.timedelta(hours=1)
+        by_slot = defaultdict(list)
+        cur = start
+        while cur < end:
+            by_slot[(cur.weekday(), cur.hour)].append(hourly_peak.get((cur.date(), cur.hour), 0.0))
+            cur += dt.timedelta(hours=1)
 
-        resultado = {chave(*k): statistics.median(v) for k, v in por_slot.items()}
-        if not any(resultado.values()):
-            return _perfil_baseline_simulado()
-        return resultado
+        result = {slot_key(*k): statistics.median(v) for k, v in by_slot.items()}
+        if not any(result.values()):
+            return _simulated_baseline_profile()
+        return result
     except Exception as e:
-        log.warning("[%s] CloudWatch indisponível (%s): a usar perfil histórico baseline",
+        log.warning("[%s] CloudWatch metrics unavailable (%s): using baseline profile",
                     dep.get("aws_region"), e)
-        return _perfil_baseline_simulado()
+        return _simulated_baseline_profile()
 
 
 # ----------------------------------------------------------------------------
-# Fonte: futebol (football-data.org)
+# Source: Football (football-data.org)
 # ----------------------------------------------------------------------------
 FOOTBALL_API = "https://api.football-data.org/v4"
 
@@ -299,96 +287,95 @@ def _fb_get(path, **params):
     return r.json()
 
 
-def _paises_das_equipas():
-    def obter():
+def _get_team_countries():
+    def fetch():
         out = {}
-        for code, (_, tipo) in COMPETICOES.items():
-            if tipo != "equipas":
+        for code, (_, source_type) in COMPETITIONS.items():
+            if source_type != "teams":
                 continue
             try:
                 for t in _fb_get(f"/competitions/{code}/teams")["teams"]:
                     out[str(t["id"])] = (t.get("area") or {}).get("name", "")
             except requests.HTTPError as e:
                 if e.response is not None and e.response.status_code in (403, 404):
-                    log.warning("competição %s indisponível (%s)", code, e.response.status_code)
+                    log.warning("Competition %s unavailable (%s)", code, e.response.status_code)
                 else:
                     raise
         return out
-    return _cache("paises_equipas", 7 * 86400, obter)
+    return _cache("team_countries", 7 * 86400, fetch)
 
 
-def _jogos_brutos(agora):
-    def obter():
-        hoje = agora.date()
-        return _fb_get("/matches", competitions=",".join(COMPETICOES),
-                       dateFrom=(hoje - dt.timedelta(days=1)).isoformat(),
-                       dateTo=(hoje + dt.timedelta(days=3)).isoformat())["matches"]
-    return _cache("jogos", 3 * 3600, obter)
+def _get_raw_matches(now):
+    def fetch():
+        today = now.date()
+        return _fb_get("/matches", competitions=",".join(COMPETITIONS),
+                       dateFrom=(today - dt.timedelta(days=1)).isoformat(),
+                       dateTo=(today + dt.timedelta(days=3)).isoformat())["matches"]
+    return _cache("matches", 3 * 3600, fetch)
 
 
-def eventos_futebol(agora):
+def collect_football_events(now):
     if not os.environ.get("FOOTBALL_API_KEY"):
-        log.info("futebol: sem FOOTBALL_API_KEY, fonte desligada")
+        log.info("Football: FOOTBALL_API_KEY not set, source disabled")
         return []
-    paises_equipa = _paises_das_equipas()
+    team_countries = _get_team_countries()
     out = []
     try:
-        jogos = _jogos_brutos(agora)
+        matches = _get_raw_matches(now)
     except Exception as e:
-        log.warning("futebol: erro ao obter jogos (%s)", e)
+        log.warning("Football: Error fetching matches (%s)", e)
         return []
 
-    for m in jogos:
+    for m in matches:
         if m.get("status") not in ("SCHEDULED", "TIMED", "IN_PLAY", "PAUSED"):
             continue
         code = (m.get("competition") or {}).get("code")
-        if code not in COMPETICOES:
+        if code not in COMPETITIONS:
             continue
-        base, tipo = COMPETICOES[code]
+        base_effect, source_type = COMPETITIONS[code]
         stage = m.get("stage")
-        equipas = [m.get("homeTeam") or {}, m.get("awayTeam") or {}]
-        nomes = [(t.get("name") or "").lower() for t in equipas]
-        grandes = [any(g in n for g in GRANDES) for n in nomes]
-        extra = 1.3 if all(grandes) else 1.0
+        teams = [m.get("homeTeam") or {}, m.get("awayTeam") or {}]
+        names = [(t.get("name") or "").lower() for t in teams]
+        top_tier = [any(g in n for g in TOP_TEAMS) for n in names]
+        extra = 1.3 if all(top_tier) else 1.0
 
-        por_pais = {}
-        for t, grande in zip(equipas, grandes):
-            nome_pais = (m.get("area") or {}).get("name", "") if tipo == "liga" \
-                else paises_equipa.get(str(t.get("id")), "")
-            iso = NOME_PARA_ISO.get(nome_pais.strip().lower())
+        by_country = {}
+        for t, is_top in zip(teams, top_tier):
+            country_name = (m.get("area") or {}).get("name", "") if source_type == "league" \
+                else team_countries.get(str(t.get("id")), "")
+            iso = NAME_TO_ISO.get(country_name.strip().lower())
             if not iso:
                 continue
-            ef = base * STAGE_MULT.get(stage, 1.0) * extra * (1.5 if grande else 1.0)
-            por_pais[iso] = max(por_pais.get(iso, 0.0), ef)
+            ef = base_effect * STAGE_MULT.get(stage, 1.0) * extra * (1.5 if is_top else 1.0)
+            by_country[iso] = max(by_country.get(iso, 0.0), ef)
 
-        inicio = _parse_utc(m["utcDate"])
-        dur = DURACAO_ELIMINATORIA if stage in ELIMINATORIAS else DURACAO_JOGO
-        desc = (f"{equipas[0].get('name')} vs {equipas[1].get('name')} "
-                f"[{code}{'/' + stage if stage else ''}]")
-        for iso, ef in por_pais.items():
-            if ef >= EFEITO_MIN:
-                out.append(Evento(iso, inicio - PRE_EVENTO, inicio + dur,
-                                  min(ef, EFEITO_MAX), desc, "futebol"))
+        start = _parse_utc(m["utcDate"])
+        duration = KNOCKOUT_MATCH_DURATION if stage in KNOCKOUT_STAGES else REGULAR_MATCH_DURATION
+        desc = f"{teams[0].get('name')} vs {teams[1].get('name')} [{code}{'/' + stage if stage else ''}]"
+        for iso, ef in by_country.items():
+            if ef >= MIN_EFFECT:
+                out.append(Event(iso, start - PRE_EVENT_WINDOW, start + duration,
+                                 min(ef, MAX_EFFECT), desc, "football"))
     return out
 
 
 # ----------------------------------------------------------------------------
-# Fonte: PredictHQ
+# Source: PredictHQ
 # ----------------------------------------------------------------------------
-def eventos_predicthq(agora):
+def collect_predicthq_events(now):
     token = os.environ.get("PREDICTHQ_TOKEN")
     if not token:
-        log.info("predicthq: sem PREDICTHQ_TOKEN, fonte desligada")
+        log.info("PredictHQ: PREDICTHQ_TOKEN not set, source disabled")
         return []
 
-    def obter():
+    def fetch():
         url = "https://api.predicthq.com/v1/events/"
-        hoje = agora.date()
-        params = {"category": PHQ_CATEGORIAS,
-                  "country": ",".join(p for p in PAISES if p != "XK"),
-                  "active.gte": (hoje - dt.timedelta(days=1)).isoformat(),
-                  "active.lte": (hoje + dt.timedelta(days=3)).isoformat(),
-                  "rank.gte": PHQ_RANK_MIN, "sort": "start", "limit": 200}
+        today = now.date()
+        params = {"category": PHQ_CATEGORIES,
+                  "country": ",".join(p for p in COUNTRIES if p != "XK"),
+                  "active.gte": (today - dt.timedelta(days=1)).isoformat(),
+                  "active.lte": (today + dt.timedelta(days=3)).isoformat(),
+                  "rank.gte": PHQ_MIN_RANK, "sort": "start", "limit": 200}
         out = []
         while url and len(out) < 2000:
             r = requests.get(url, headers={"Authorization": f"Bearer {token}"},
@@ -400,314 +387,325 @@ def eventos_predicthq(agora):
         return out
 
     out = []
-    for ev in _cache("predicthq", 6 * 3600, obter):
+    for ev in _cache("predicthq", 6 * 3600, fetch):
         iso = (ev.get("country") or "").upper()
-        if iso not in PAISES or not ev.get("start"):
+        if iso not in COUNTRIES or not ev.get("start"):
             continue
-        ef = PHQ_EFEITO_POR_100K * (ev.get("phq_attendance") or 0) / 100_000
-        if ef < EFEITO_MIN:
+        ef = PHQ_EFFECT_PER_100K * (ev.get("phq_attendance") or 0) / 100_000
+        if ef < MIN_EFFECT:
             continue
-        inicio = _parse_utc(ev["start"])
-        fim = _parse_utc(ev["end"]) if ev.get("end") else inicio + DURACAO_JOGO
-        out.append(Evento(iso, inicio - PRE_EVENTO, fim + PRE_EVENTO, min(ef, EFEITO_MAX),
-                          f"{ev.get('title')} [{ev.get('category')}, ~{ev.get('phq_attendance')} pessoas]",
-                          "predicthq"))
+        start = _parse_utc(ev["start"])
+        end = _parse_utc(ev["end"]) if ev.get("end") else start + REGULAR_MATCH_DURATION
+        out.append(Event(iso, start - PRE_EVENT_WINDOW, end + PRE_EVENT_WINDOW, min(ef, MAX_EFFECT),
+                         f"{ev.get('title')} [{ev.get('category')}, ~{ev.get('phq_attendance')} pax]",
+                         "predicthq"))
     return out
 
 
 # ----------------------------------------------------------------------------
-# Fonte: Ticketmaster
+# Source: Ticketmaster
 # ----------------------------------------------------------------------------
-def eventos_ticketmaster(agora):
+def collect_ticketmaster_events(now):
     key = os.environ.get("TICKETMASTER_API_KEY")
     if not key:
-        log.info("ticketmaster: sem TICKETMASTER_API_KEY, fonte desligada")
+        log.info("Ticketmaster: TICKETMASTER_API_KEY not set, source disabled")
         return []
 
-    def obter():
+    def fetch():
         fmt = "%Y-%m-%dT%H:%M:%SZ"
         out = []
-        paises_consulta = [p for p in TM_PAISES_RELEVANTES if p in PAISES]
-        for iso in paises_consulta:
+        countries_to_query = [p for p in TM_RELEVANT_COUNTRIES if p in COUNTRIES]
+        for iso in countries_to_query:
             try:
                 r = requests.get("https://app.ticketmaster.com/discovery/v2/events.json", params={
                     "apikey": key, "countryCode": iso, "classificationName": "music",
-                    "startDateTime": (agora - dt.timedelta(hours=12)).strftime(fmt),
-                    "endDateTime": (agora + dt.timedelta(days=3)).strftime(fmt),
+                    "startDateTime": (now - dt.timedelta(hours=12)).strftime(fmt),
+                    "endDateTime": (now + dt.timedelta(days=3)).strftime(fmt),
                     "size": 100, "sort": "date,asc"}, timeout=15)
                 r.raise_for_status()
             except requests.RequestException as e:
-                log.warning("ticketmaster %s: %s", iso, e)
+                log.warning("Ticketmaster %s: %s", iso, e)
                 continue
-            out += [dict(ev, _pais=iso) for ev in (r.json().get("_embedded") or {}).get("events", [])]
+            out += [dict(ev, _country=iso) for ev in (r.json().get("_embedded") or {}).get("events", [])]
             time.sleep(0.2)
         return out
 
     out = []
-    for ev in _cache("ticketmaster", 6 * 3600, obter):
-        inicio_s = ((ev.get("dates") or {}).get("start") or {}).get("dateTime")
+    for ev in _cache("ticketmaster", 6 * 3600, fetch):
+        start_str = ((ev.get("dates") or {}).get("start") or {}).get("dateTime")
         venues = (ev.get("_embedded") or {}).get("venues") or [{}]
-        recinto = (venues[0].get("name") or "").lower()
-        if not inicio_s or not any(w in recinto for w in TM_RECINTOS_GRANDES):
+        venue_name = (venues[0].get("name") or "").lower()
+        if not start_str or not any(w in venue_name for w in TM_LARGE_VENUES):
             continue
-        inicio = _parse_utc(inicio_s)
-        out.append(Evento(ev["_pais"], inicio - dt.timedelta(hours=1), inicio + dt.timedelta(hours=4),
-                          TM_EFEITO_RECINTO_GRANDE, f"{ev.get('name')} @ {venues[0].get('name')}",
-                          "ticketmaster"))
+        start = _parse_utc(start_str)
+        out.append(Event(ev["_country"], start - dt.timedelta(hours=1), start + dt.timedelta(hours=4),
+                         TM_LARGE_VENUE_EFFECT, f"{ev.get('name')} @ {venues[0].get('name')}",
+                         "ticketmaster"))
     return out
 
 
 # ----------------------------------------------------------------------------
-# Fonte: eventos manuais (resolução robusta de caminho e maiúsculas/minúsculas)
+# Source: Manual Events (supports both English and Portuguese schema keys)
 # ----------------------------------------------------------------------------
-def eventos_manuais(agora):
-    caminho_env = os.environ.get("EVENTOS_MANUAIS")
-    if caminho_env:
-        f = Path(caminho_env)
+def collect_manual_events(now):
+    env_path = os.environ.get("MANUAL_EVENTS") or os.environ.get("EVENTOS_MANUAIS")
+    if env_path:
+        f = Path(env_path)
     else:
         base = Path(__file__).resolve().parent
         f = base / "EventosManuais.json"
         if not f.exists():
-            f = base / "eventos_manuais.json"
+            f = base / "manual_events.json"
 
     if not f.exists():
-        log.warning("eventos_manuais: ficheiro %s não encontrado", f)
+        log.warning("Manual Events: File %s not found", f)
         return []
 
     try:
-        conteudo = json.loads(f.read_text(encoding="utf-8"))
+        content = json.loads(f.read_text(encoding="utf-8"))
     except Exception as err:
-        log.warning("eventos_manuais: erro ao ler %s: %s", f, err)
+        log.warning("Manual Events: Error reading %s: %s", f, err)
         return []
 
     out = []
-    for e in conteudo:
+    for e in content:
         try:
-            if e.get("paises"):
-                isos = [p.upper() for p in e["paises"]]
-            elif e.get("zona"):
-                isos = [i for i, v in PAISES.items() if v[0] == e["zona"]]
+            countries_list = e.get("countries") or e.get("paises")
+            zone = e.get("zone") or e.get("zona")
+            desc = e.get("description") or e.get("descricao", "manual")
+            start = _parse_utc(e.get("start") or e.get("inicio"))
+            end = _parse_utc(e.get("end") or e.get("fim"))
+            effect = float(e.get("effect") or e.get("efeito", 1.0))
+
+            if countries_list:
+                isos = [p.upper() for p in countries_list]
+            elif zone:
+                zone_std = "west" if zone in ("west", "oeste") else \
+                           "central" if zone == "central" else \
+                           "north" if zone in ("north", "norte") else \
+                           "south_east" if zone in ("south_east", "sul_este", "sul") else zone
+                isos = [i for i, v in COUNTRIES.items() if v[0] == zone_std]
             else:
-                isos = list(PAISES)
+                isos = list(COUNTRIES)
+
             for iso in isos:
-                if iso in PAISES:
-                    out.append(Evento(iso, _parse_utc(e["inicio"]), _parse_utc(e["fim"]),
-                                      float(e["efeito"]), e.get("descricao", "manual"), "manual"))
+                if iso in COUNTRIES:
+                    out.append(Event(iso, start, end, effect, desc, "manual"))
         except (KeyError, ValueError, TypeError) as err:
-            log.warning("evento manual inválido %r: %s", e, err)
+            log.warning("Manual event invalid %r: %s", e, err)
     return out
 
 
-FONTES = {
-    "futebol": eventos_futebol,
-    "predicthq": eventos_predicthq,
-    "ticketmaster": eventos_ticketmaster,
-    "manual": eventos_manuais,
+SOURCES = {
+    "football": collect_football_events,
+    "predicthq": collect_predicthq_events,
+    "ticketmaster": collect_ticketmaster_events,
+    "manual": collect_manual_events,
 }
 
 
-def recolher_eventos(agora):
-    todos = []
-    for nome, fn in FONTES.items():
+def collect_all_events(now):
+    all_events = []
+    for name, fn in SOURCES.items():
         try:
-            evs = fn(agora)
+            evs = fn(now)
         except Exception as e:
-            log.error("fonte %s falhou (%s): ignorada nesta execução", nome, e)
+            log.error("Source %s failed (%s): skipped in this run", name, e)
             continue
         for e in evs:
-            e.efeito *= FATOR_FONTE.get(nome, 1.0)
-        log.info("fonte %s: %d eventos", nome, len(evs))
-        todos += evs
-    return todos
+            e.effect *= SOURCE_WEIGHTS.get(name, 1.0)
+        log.info("Source %s: %d events collected", name, len(evs))
+        all_events += evs
+    return all_events
 
 
 # ----------------------------------------------------------------------------
-# Feriados nacionais
+# National Holidays
 # ----------------------------------------------------------------------------
 @lru_cache(maxsize=None)
-def _feriados(iso, ano):
+def _get_holidays(iso, year):
     if holidays is None:
         return {}
     try:
-        return holidays.country_holidays(iso, years=ano)
+        return holidays.country_holidays(iso, years=year)
     except (NotImplementedError, KeyError):
         return {}
 
 
 @lru_cache(maxsize=None)
-def _fuso(nome):
+def _get_timezone(name):
     try:
-        return ZoneInfo(nome)
+        return ZoneInfo(name)
     except ZoneInfoNotFoundError:
         return dt.timezone.utc
 
 
-def fracao_feriado(dep_nome, quando):
+def holiday_traffic_fraction(dep_name, when):
     h = 0.0
-    for iso, peso in PESOS[dep_nome].items():
-        local = quando.astimezone(_fuso(PAISES[iso][2])).date()
-        if local in _feriados(iso, local.year):
-            h += peso
+    for iso, weight in WEIGHTS[dep_name].items():
+        local_date = when.astimezone(_get_timezone(COUNTRIES[iso][2])).date()
+        if local_date in _get_holidays(iso, local_date.year):
+            h += weight
     return h
 
 
-def base_esperada(dep_nome, perfil, quando):
-    normal = perfil.get(chave(quando.weekday(), quando.hour), 0.0)
-    if quando.weekday() >= 5:
+def expected_baseline(dep_name, profile, when):
+    normal = profile.get(slot_key(when.weekday(), when.hour), 0.0)
+    if when.weekday() >= 5:
         return normal
-    h = fracao_feriado(dep_nome, quando)
+    h = holiday_traffic_fraction(dep_name, when)
     if h == 0:
         return normal
-    feriado = perfil.get(chave(DIA_PERFIL_FERIADO, quando.hour), normal)
-    return (1 - h) * normal + h * feriado
+    holiday = profile.get(slot_key(HOLIDAY_PROFILE_DAY, when.hour), normal)
+    return (1 - h) * normal + h * holiday
 
 
 # ----------------------------------------------------------------------------
-# Capacidade alvo
+# Target Provisioned Concurrency Calculation
 # ----------------------------------------------------------------------------
-def multiplicador(dep_nome, eventos, quando):
+def calculate_traffic_multiplier(dep_name, events, when):
     mult = 1.0
-    for iso, peso in PESOS[dep_nome].items():
-        ativos = [e.efeito for e in eventos if e.pais == iso and e.inicio <= quando <= e.fim]
-        if ativos:
-            mult += peso * max(ativos, key=abs)
+    for iso, weight in WEIGHTS[dep_name].items():
+        active = [e.effect for e in events if e.country == iso and e.start <= when <= e.end]
+        if active:
+            mult += weight * max(active, key=abs)
     return max(MIN_MULT, min(MAX_BOOST, mult))
 
 
-def alvo_pc(dep_nome, dep, perfil, eventos, agora):
-    melhor = 0.0
-    for minutos in range(0, LEAD_MIN + 1, 10):
-        t = agora + dt.timedelta(minutes=minutos)
-        melhor = max(melhor, base_esperada(dep_nome, perfil, t) * multiplicador(dep_nome, eventos, t))
-    pc = math.ceil(melhor * HEADROOM)
+def compute_target_concurrency(dep_name, dep, profile, events, now):
+    best = 0.0
+    for minutes in range(0, LEAD_MIN + 1, 10):
+        t = now + dt.timedelta(minutes=minutes)
+        best = max(best, expected_baseline(dep_name, profile, t) * calculate_traffic_multiplier(dep_name, events, t))
+    pc = math.ceil(best * HEADROOM)
     return max(dep["min_pc"], min(dep["max_pc"], pc))
 
 
 # ----------------------------------------------------------------------------
-# Aplicação em AWS Lambda (ou simulação local)
+# AWS Lambda Provisioning Execution (or Safe Local Simulation)
 # ----------------------------------------------------------------------------
-NAO_EXISTE = {"ProvisionedConcurrencyConfigNotFoundException", "ResourceNotFoundException"}
+RESOURCE_NOT_FOUND = {"ProvisionedConcurrencyConfigNotFoundException", "ResourceNotFoundException"}
 
 
-def _pc_atual(lam, dep):
+def get_current_concurrency(lam, dep):
     if lam is None:
-        return 5  # Valor baseline simulado para teste
+        return 5  # Realistic simulated concurrency baseline
     try:
         r = lam.get_provisioned_concurrency_config(FunctionName=dep["function"],
                                                    Qualifier=dep["alias"])
         return r.get("RequestedProvisionedConcurrentExecutions", 0)
     except ClientError as e:
-        if e.response["Error"]["Code"] in NAO_EXISTE:
+        if e.response["Error"]["Code"] in RESOURCE_NOT_FOUND:
             return 0
-        log.warning("[%s] Erro ao obter PC (%s): assumindo 0", dep.get("aws_region"), e)
+        log.warning("[%s] Error retrieving current PC (%s): assuming 0", dep.get("aws_region"), e)
         return 0
     except Exception:
         return 5
 
 
-def _vale_a_pena(atual, novo):
-    if atual == novo:
+def is_adjustment_worthwhile(current, target):
+    if current == target:
         return False
-    if atual == 0 or novo == 0:
+    if current == 0 or target == 0:
         return True
-    return abs(novo - atual) / atual >= HISTERESE
+    return abs(target - current) / current >= HYSTERESIS
 
 
-def aplicar(nome, dep, novo):
+def apply_concurrency_update(name, dep, new_target):
     lam = boto3.client("lambda", region_name=dep["aws_region"]) if boto3 is not None else None
-    atual = _pc_atual(lam, dep)
-    if not _vale_a_pena(atual, novo):
-        log.info("[%s] mantém %s (alvo %s)", nome, atual, novo)
-        return atual
-    simulado_str = "  (DRY_RUN / SIMULAÇÃO)" if (DRY_RUN or lam is None) else ""
-    log.info("[%s] provisioned concurrency %s -> %s%s", nome, atual, novo, simulado_str)
+    current = get_current_concurrency(lam, dep)
+    if not is_adjustment_worthwhile(current, new_target):
+        log.info("[%s] Retaining concurrency %s (target %s)", name, current, new_target)
+        return current
+    sim_label = "  (DRY_RUN / SIMULATION)" if (DRY_RUN or lam is None) else ""
+    log.info("[%s] Provisioned concurrency %s -> %s%s", name, current, new_target, sim_label)
     if DRY_RUN or lam is None:
-        return atual
-    if novo == 0:
+        return current
+    if new_target == 0:
         try:
             lam.delete_provisioned_concurrency_config(FunctionName=dep["function"],
                                                       Qualifier=dep["alias"])
         except ClientError as e:
-            if e.response["Error"]["Code"] not in NAO_EXISTE:
+            if e.response["Error"]["Code"] not in RESOURCE_NOT_FOUND:
                 raise
     else:
         lam.put_provisioned_concurrency_config(FunctionName=dep["function"],
                                                Qualifier=dep["alias"],
-                                               ProvisionedConcurrentExecutions=novo)
-    return novo
+                                               ProvisionedConcurrentExecutions=new_target)
+    return new_target
 
 
 # ----------------------------------------------------------------------------
-# Execução Principal
+# Main Process Pipeline
 # ----------------------------------------------------------------------------
 def main():
-    agora = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.timezone.utc)
 
     if holidays is None:
-        log.info("biblioteca 'holidays' não instalada: feriados ignorados (opcional: pip install holidays)")
+        log.info("Package 'holidays' not installed: skipping national holidays (install via: pip install holidays)")
     if boto3 is None:
-        log.info("boto3 não instalado: execução em modo de simulação / exportação para cache manager")
+        log.info("Package 'boto3' not installed: running in local simulation mode / exporting to cache manager")
 
-    # 1. Recolha de eventos
-    eventos = recolher_eventos(agora)
+    # 1. Collect events from all active sources
+    events = collect_all_events(now)
 
-    # 2. Análise semântica e estratégias de cache via Google Gemini AI
-    eventos_analisados = analisar_eventos_com_gemini(eventos)
+    # 2. Analyze events and extract cache directives using Google Gemini AI
+    analyzed_events = analyze_events_with_gemini(events)
 
-    # 3. Ajuste fino dos efeitos com base na IA
-    for e, ia in zip(eventos, eventos_analisados):
-        if "efeito_ajustado" in ia:
+    # 3. Fine-tune event effects based on AI adjustments
+    for e, ai_data in zip(events, analyzed_events):
+        if "adjusted_effect" in ai_data:
             try:
-                e.efeito = max(MIN_MULT, min(EFEITO_MAX, float(ia["efeito_ajustado"])))
+                e.effect = max(MIN_MULT, min(MAX_EFFECT, float(ai_data["adjusted_effect"])))
             except (ValueError, TypeError):
                 pass
 
-    # Log dos eventos ativos e nas próximas 24 horas
-    for e in sorted(eventos, key=lambda x: x.inicio):
-        if e.fim >= agora and e.inicio <= agora + dt.timedelta(hours=24):
-            log.info("evento [%s] %+.2f %s -> %s | %s (%s)", e.pais, e.efeito,
-                     e.inicio.strftime("%d/%m %H:%M"), e.fim.strftime("%H:%M UTC"),
-                     e.descricao, e.fonte)
+    # Log events active now or starting in the next 24 hours
+    for e in sorted(events, key=lambda x: x.start):
+        if e.end >= now and e.start <= now + dt.timedelta(hours=24):
+            log.info("Event [%s] %+.2f %s -> %s | %s (%s)", e.country, e.effect,
+                     e.start.strftime("%d/%m %H:%M"), e.end.strftime("%H:%M UTC"),
+                     e.description, e.source)
 
-    deployments_resultado = {}
-    for nome, dep in DEPLOYMENTS.items():
+    deployments_result = {}
+    for name, dep in DEPLOYMENTS.items():
         try:
-            perfil = _cache(f"perfil_{nome}", 86400, lambda d=dep: perfil_historico(d))
-            fer = fracao_feriado(nome, agora)
-            if fer:
-                log.info("[%s] %.0f%% do tráfego está em feriado nacional hoje", nome, fer * 100)
+            profile = _cache(f"profile_{name}", 86400, lambda d=dep: get_historical_profile(d))
+            holiday_fraction = holiday_traffic_fraction(name, now)
+            if holiday_fraction:
+                log.info("[%s] %.0f%% of traffic is in a national holiday today", name, holiday_fraction * 100)
 
-            alvo = alvo_pc(nome, dep, perfil, eventos, agora)
-            mult = multiplicador(nome, eventos, agora)
-            base = base_esperada(nome, perfil, agora)
+            target = compute_target_concurrency(name, dep, profile, events, now)
+            multiplier = calculate_traffic_multiplier(name, events, now)
+            baseline = expected_baseline(name, profile, now)
 
             lam = boto3.client("lambda", region_name=dep["aws_region"]) if boto3 is not None else None
-            atual = _pc_atual(lam, dep)
-            aplicar(nome, dep, alvo)
+            current = get_current_concurrency(lam, dep)
+            apply_concurrency_update(name, dep, target)
 
-            paises_zona = [iso for iso, (z, _, _, _) in PAISES.items() if ZONA_DEPLOYMENT.get(z) == nome]
-            deployments_resultado[nome] = {
+            covered_countries = [iso for iso, (z, _, _, _) in COUNTRIES.items() if ZONE_DEPLOYMENT.get(z) == name]
+            deployments_result[name] = {
                 "aws_region": dep["aws_region"],
                 "function": dep["function"],
-                "multiplicador": round(mult, 2),
-                "base_esperada": round(base, 2),
-                "alvo_pc": alvo,
-                "atual_pc": atual,
-                "paises_cobertos": paises_zona,
+                "multiplier": round(multiplier, 2),
+                "baseline_expected": round(baseline, 2),
+                "target_pc": target,
+                "current_pc": current,
+                "covered_countries": covered_countries,
             }
         except Exception as e:
-            log.error("[%s] falhou (%s): mantendo o estado atual", nome, e)
+            log.error("[%s] Processing failed (%s): retaining current state", name, e)
 
-    # 4. Exportação das diretivas consolidadas para o Cache Manager
-    caminho_cache = Path(os.environ.get(
+    # 4. Export consolidated directives for downstream Cache Manager
+    cache_output_path = Path(os.environ.get(
         "CACHE_MANAGER_OUTPUT",
         Path(__file__).resolve().parent / "cache_manager_feed.json"
     ))
-    exportar_para_cache_manager(
-        caminho_saida=caminho_cache,
-        agora=agora,
-        deployments_resultado=deployments_resultado,
-        eventos_analisados=eventos_analisados,
+    export_to_cache_manager(
+        output_path=cache_output_path,
+        now=now,
+        deployments_result=deployments_result,
+        analyzed_events=analyzed_events,
         dry_run=DRY_RUN or (boto3 is None),
     )
 
