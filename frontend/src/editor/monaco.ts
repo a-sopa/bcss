@@ -34,21 +34,21 @@ monaco.editor.defineTheme("owncloud-dark", {
     { token: "number", foreground: "F5B85A" },
   ],
   colors: {
-    "editor.background": "#081B31",
-    "editorGutter.background": "#081B31",
-    "editor.lineHighlightBackground": "#0F2A4A66",
+    "editor.background": "#040D22",
+    "editorGutter.background": "#040D22",
+    "editor.lineHighlightBackground": "#0C1E4066",
     "editor.lineHighlightBorder": "#00000000",
     "editorLineNumber.foreground": "#4A607E",
     "editorLineNumber.activeForeground": "#8B9BB4",
     "editor.selectionBackground": "#42D6C533",
     "editorCursor.foreground": "#42D6C5",
     "editorIndentGuide.background1": "#A0BEDC14",
-    "editorWidget.background": "#0B2340",
+    "editorWidget.background": "#071330",
     "editorWidget.border": "#A0BEDC26",
-    "editorHoverWidget.background": "#0B2340",
+    "editorHoverWidget.background": "#071330",
     "editorHoverWidget.border": "#A0BEDC33",
     "scrollbarSlider.background": "#8B9BB422",
-    "minimap.background": "#071A2E",
+    "minimap.background": "#020817",
   },
 });
 
@@ -60,7 +60,7 @@ monaco.editor.defineTheme("owncloud-light", {
     "editor.background": "#FFFFFF",
     "editor.lineHighlightBackground": "#F3F7FC",
     "editorLineNumber.foreground": "#8B9BB4",
-    "editorCursor.foreground": "#0B2340",
+    "editorCursor.foreground": "#071330",
   },
 });
 

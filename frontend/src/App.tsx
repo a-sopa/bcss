@@ -2,15 +2,8 @@ import { lazy, Suspense } from "react";
 import { MotionConfig } from "motion/react";
 import { Header } from "./components/Header";
 import { Hero } from "./components/Hero";
-import { Footer } from "./components/Footer";
-import { Overview } from "./sections/Overview";
-import { Capabilities } from "./sections/Capabilities";
-import { Architecture } from "./sections/Architecture";
-import { Europe } from "./sections/Europe";
-import { Security } from "./sections/Security";
-import { Docs } from "./sections/Docs";
-import { FinalCta } from "./sections/FinalCta";
-import { Migration } from "./sections/Migration";
+import { BinaryField } from "./components/BinaryField";
+import { MadeInEurope } from "./sections/MadeInEurope";
 import { Console } from "./console/Console";
 import { useHashRoute } from "./hooks/useHashRoute";
 import { AuthGate } from "./console/AuthGate";
@@ -45,19 +38,12 @@ export function App() {
       >
         Skip to content
       </a>
+      <BinaryField />
       <Header />
-      <main id="main">
+      <main id="main" className="relative z-10">
         <Hero />
-        <Overview />
-        <Capabilities />
-        <Migration />
-        <Architecture />
-        <Europe />
-        <Security />
-        <Docs />
-        <FinalCta />
+        <MadeInEurope />
       </main>
-      <Footer />
     </MotionConfig>
   );
 }

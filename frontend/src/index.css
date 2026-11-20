@@ -1,9 +1,10 @@
 @import "tailwindcss";
 
 @theme {
-  --color-navy-950: #071a2e;
-  --color-navy-900: #0b2340;
+  --color-navy-950: #000a24;
+  --color-navy-900: #001240;
   --color-teal: #42d6c5;
+  --color-gold: #ffcc00;
   --color-teal-soft: #6fe4d6;
   --color-azure: #528bff;
   --color-ink: #f3f7fc;
@@ -15,6 +16,8 @@
   --font-display: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-code: "Share Tech Mono", ui-monospace, monospace;
+  --font-tech: "Chakra Petch", ui-sans-serif, sans-serif;
 
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -54,96 +57,97 @@
 /* ---------- Atmosphere ---------- */
 
 .hero-atmosphere {
+  background: radial-gradient(ellipse 60% 55% at 50% 42%, rgb(0 51 153 / 0.3), transparent 75%);
+}
+
+.europe-intro-atmosphere {
   background:
-    radial-gradient(ellipse 55% 45% at 50% 56%, rgb(66 214 197 / 0.1), transparent 70%),
-    radial-gradient(ellipse 70% 55% at 50% 60%, rgb(82 139 255 / 0.09), transparent 75%),
-    linear-gradient(180deg, var(--color-navy-950) 0%, #08203a 55%, var(--color-navy-950) 100%);
+    radial-gradient(circle at 50% 50%, rgb(255 204 0 / 0.06), transparent 40%),
+    radial-gradient(ellipse 70% 70% at 50% 50%, rgb(0 51 153 / 0.35), transparent 80%);
 }
 
 .europe-atmosphere {
   background:
-    radial-gradient(ellipse 45% 60% at 85% 40%, rgb(82 139 255 / 0.1), transparent 70%),
-    radial-gradient(ellipse 35% 45% at 10% 80%, rgb(66 214 197 / 0.06), transparent 70%);
+    radial-gradient(ellipse 45% 60% at 85% 40%, rgb(82 139 255 / 0.08), transparent 70%),
+    radial-gradient(ellipse 35% 45% at 10% 80%, rgb(66 214 197 / 0.05), transparent 70%);
 }
 
 .final-atmosphere {
-  background: radial-gradient(ellipse 40% 55% at 50% 50%, rgb(66 214 197 / 0.1), transparent 70%);
+  background: radial-gradient(ellipse 40% 55% at 50% 50%, rgb(66 214 197 / 0.08), transparent 70%);
+}
+
+@utility text-gold {
+  background: linear-gradient(180deg, #fff1a8 0%, #ffcc00 55%, #e0a100 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 18px rgb(255 204 0 / 0.35));
+}
+
+/* ---------- Hero title ---------- */
+
+.title-glow {
+  text-shadow: 0 0 24px rgb(66 214 197 / 0.55), 0 0 4px rgb(66 214 197 / 0.6);
+}
+
+.type-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.85em;
+  margin-left: 0.08em;
+  vertical-align: -0.08em;
+  background: var(--color-teal);
+  box-shadow: 0 0 14px rgb(66 214 197 / 0.8);
+  animation: caret 1.05s steps(1) infinite;
+}
+
+@keyframes caret {
+  50% { opacity: 0; }
+}
+
+/* ---------- Europe stars ---------- */
+
+.eu-star {
+  filter: drop-shadow(0 0 6px rgb(255 204 0 / 0.75)) drop-shadow(0 0 16px rgb(255 170 0 / 0.35));
+}
+
+.gold-dust {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: #ffd84d;
+  box-shadow: 0 0 8px 1px rgb(255 204 0 / 0.7);
+  animation: twinkle 3.6s ease-in-out infinite;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.15; }
+  50%      { opacity: 1; }
 }
 
 /* ---------- Cloud network ---------- */
 
-.net-halo {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: net-halo 6s ease-in-out infinite;
-}
-
-@keyframes net-halo {
-  0%, 100% { opacity: 0.45; transform: scale(0.94); }
-  50%      { opacity: 0.9;  transform: scale(1.06); }
-}
-
-.net-node {
-  cursor: pointer;
-  outline: none;
-}
-
-.net-ring {
-  transition: stroke-opacity 0.5s var(--ease-soft);
-}
-
-.net-hover-ring {
-  opacity: 0;
-  transform: scale(0.82);
-  transform-box: fill-box;
-  transform-origin: center;
-  transition: opacity 0.5s var(--ease-soft), transform 0.6s var(--ease-soft);
-}
-
-.net-label {
-  opacity: 0;
-  transition: opacity 0.5s var(--ease-soft);
-  pointer-events: none;
-}
-
-.net-node:hover .net-ring,
-.net-node:focus-visible .net-ring {
-  stroke-opacity: 1;
-}
-
-.net-node:hover .net-hover-ring,
-.net-node:focus-visible .net-hover-ring {
-  opacity: 0.55;
-  transform: scale(1);
-}
-
-.net-node:hover .net-label,
-.net-node:focus-visible .net-label {
-  opacity: 1;
-}
-
 /* A short dash that travels outward, from the cloud to the node. */
 .net-pulse {
-  stroke-dasharray: 0.05 0.95;
-  stroke-dashoffset: 0.05;
+  stroke-dasharray: 0.06 0.94;
+  stroke-dashoffset: 0.06;
   opacity: 0;
   animation: net-pulse 8s linear infinite backwards;
 }
 
 @keyframes net-pulse {
-  0%   { stroke-dashoffset: 0.05; opacity: 0; }
+  0%   { stroke-dashoffset: 0.06; opacity: 0; }
   10%  { opacity: 1; }
   75%  { opacity: 1; }
   100% { stroke-dashoffset: 1; opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .net-halo,
-  .net-pulse {
+  .net-pulse,
+  .type-caret,
+  .gold-dust {
     animation: none;
-  }
-  .net-halo {
-    opacity: 0.6;
   }
 }
 

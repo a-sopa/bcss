@@ -1,78 +1,86 @@
-import { motion } from "motion/react";
-import { CloudNetwork } from "./CloudNetwork";
-import { ArrowIcon, Button, Container } from "./ui";
+import { useEffect, useState, type CSSProperties } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { CloudNetwork, T } from "./CloudNetwork";
+import { TITLE_Y } from "../lib/traces";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
+const TITLE = "OwnCloud";
+const TYPE_START = 1.35; // right after the cloud has faded in
+const TYPE_STEP = 0.11;
+const TYPED_AT = TYPE_START + TITLE.length * TYPE_STEP;
 
-const rise = (delay: number) => ({
-  initial: { opacity: 0, y: 14 },
-  animate: { opacity: 1, y: 0 },
-  transition: { delay, duration: 1, ease: EASE },
-});
+/** Types `text` one character at a time after `delay` seconds. */
+function useTyped(text: string, delay: number, step: number, still: boolean) {
+  const [count, setCount] = useState(still ? text.length : 0);
+  useEffect(() => {
+    if (still) return setCount(text.length);
+    const timers = Array.from({ length: text.length }, (_, i) =>
+      window.setTimeout(() => setCount(i + 1), (delay + i * step) * 1000),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [text, delay, step, still]);
+  return text.slice(0, count);
+}
 
 export function Hero() {
+  const still = useReducedMotion() ?? false;
+  const typed = useTyped(TITLE, TYPE_START, TYPE_STEP, still);
+  const own = typed.slice(0, 3);
+  const cloud = typed.slice(3);
+
   return (
     <section
       id="top"
       aria-labelledby="hero-title"
-      className="relative isolate flex min-h-[100svh] flex-col overflow-hidden pt-24 pb-10 sm:pt-28"
+      className="relative isolate h-[100svh] min-h-[560px] overflow-hidden"
+      // One SVG unit in CSS pixels: the network uses a 1600×900 viewBox with `slice`.
+      style={{ "--u": "max(100vw / 1600, max(100svh, 560px) / 900)" } as CSSProperties}
     >
       <div className="hero-atmosphere absolute inset-0 -z-10" aria-hidden="true" />
+      <CloudNetwork className="absolute inset-0 h-full w-full" />
 
-      <Container className="text-center">
-        <motion.p
-          {...rise(0.1)}
-          className="inline-flex items-center gap-2.5 rounded-full border border-line bg-navy-900/40 py-1.5 pr-4 pl-3 font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-ink/85 backdrop-blur-sm"
-        >
-          <span className="relative flex size-1.5" aria-hidden="true">
-            <span className="absolute inset-0 rounded-full bg-teal" />
-            <span className="absolute -inset-1 rounded-full bg-teal/25 blur-[3px]" />
-          </span>
-          Developed in Europe
-        </motion.p>
-
-        <motion.h1
+      <div
+        className="absolute inset-x-0 flex flex-col items-center px-4 text-center"
+        style={{ top: `calc(50% + ${TITLE_Y} * var(--u))` }}
+      >
+        <h1
           id="hero-title"
-          {...rise(0.2)}
-          className="mt-6 font-display text-[2.5rem] leading-[1.05] font-semibold tracking-[-0.035em] text-balance sm:text-[3.4rem] lg:text-[3.9rem]"
+          aria-label={TITLE}
+          className="font-code tracking-[0.01em] whitespace-nowrap"
+          style={{ fontSize: "clamp(2rem, min(72 * var(--u), 11vw), 6rem)", lineHeight: 1.1 }}
         >
-          Your infrastructure. <span className="text-gradient">Connected.</span>
-        </motion.h1>
+          <span aria-hidden="true" className="mr-[0.35em] text-teal/70">
+            &gt;
+          </span>
+          <span aria-hidden="true" className="text-ink">
+            {own}
+          </span>
+          <span aria-hidden="true" className="title-glow text-teal">
+            {cloud}
+          </span>
+          <span aria-hidden="true" className="type-caret" />
+        </h1>
 
         <motion.p
-          {...rise(0.35)}
-          className="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-muted text-pretty sm:text-base"
+          className="mt-3 font-code text-[13px] tracking-[0.28em] text-muted uppercase sm:text-[14px]"
+          initial={still ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: TYPED_AT + 0.3, duration: 1, ease: EASE }}
         >
-          A modern cloud infrastructure service, developed in Europe, designed to connect, power, and simplify
-          the digital world.
+          Cloud infrastructure · connected
         </motion.p>
-      </Container>
-
-      <div className="relative mx-auto mt-4 flex w-full max-w-[1320px] flex-1 items-center justify-center px-2 sm:px-6">
-        <CloudNetwork className="h-[clamp(300px,52svh,600px)] w-full" />
       </div>
 
-      <Container>
-        <motion.div {...rise(1.6)} className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <Button href="#/console" className="w-full sm:w-auto">
-            Get Started
-          </Button>
-          <Button href="#infrastructure" variant="ghost" className="w-full sm:w-auto">
-            Explore the Infrastructure
-            <ArrowIcon className="transition-transform duration-300 group-hover:translate-x-0.5" />
-          </Button>
-        </motion.div>
-      </Container>
-
       <motion.a
-        href="#infrastructure"
-        aria-label="Scroll to the infrastructure overview"
-        className="mx-auto mt-8 flex h-10 w-6 justify-center"
-        initial={{ opacity: 0 }}
+        href="#made-in-europe"
+        aria-label="Scroll down"
+        className="absolute bottom-6 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2 font-code text-[11px] tracking-[0.3em] text-muted uppercase"
+        initial={still ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 2.6, duration: 1.2 }}
+        transition={{ delay: T.pulses, duration: 1.2 }}
       >
-        <span className="scroll-cue-line block h-full w-px" aria-hidden="true" />
+        Scroll
+        <span className="scroll-cue-line block h-10 w-px" aria-hidden="true" />
       </motion.a>
     </section>
   );
