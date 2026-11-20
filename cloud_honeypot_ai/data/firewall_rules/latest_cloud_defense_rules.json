@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-11-20T12:33:24.133048+00:00",
+  "target_ips": [
+    "194.26.29.42"
+  ],
+  "aws_nacl_cli": [
+    "aws ec2 create-network-acl-entry --network-acl-id acl-01a2b3c4d5e6f7 --rule-number 100 --protocol -1 --rule-action deny --cidr-block 194.26.29.42/32 --ingress"
+  ],
+  "aws_sg_cli": [
+    "aws ec2 revoke-security-group-ingress --group-id sg-0123456789abcdef0 --protocol tcp --port 22 --cidr 194.26.29.42/32"
+  ],
+  "linux_iptables": [
+    "iptables -I INPUT -s 194.26.29.42 -j DROP"
+  ],
+  "cloudflare_waf_api": [
+    {
+      "mode": "block",
+      "configuration": {
+        "target": "ip",
+        "value": "194.26.29.42"
+      },
+      "notes": "Blocked by Cloud Honeypot AI Shield (Brute Force Attacker)"
+    }
+  ],
+  "terraform": "# Automated Cloud Honeypot AI Perimeter Defense\nresource \"aws_network_acl_rule\" \"honeypot_botnet_drop\" {\n  network_acl_id = var.vpc_main_nacl_id\n  rule_number    = 100\n  egress         = false\n  protocol       = \"-1\"\n  rule_action    = \"deny\"\n  cidr_block     = \"194.26.29.42/32\"\n}\n",
+  "efficiency_metrics": {
+    "blocked_ips_count": 1,
+    "estimated_attacks_blocked_monthly": 360000,
+    "bandwidth_saved_gb": 0.86,
+    "cpu_cycles_saved_mhz": 150.0,
+    "avoided_cloudwatch_cost_usd": 0.43,
+    "total_estimated_monthly_savings_usd": 15.01
+  }
+}
