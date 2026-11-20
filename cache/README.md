@@ -120,3 +120,31 @@ O AI escreve previsões no ficheiro `data/predictions.json`. O módulo de cache 
 | POST | `/warm/{region}` | Forçar pre-aquecimento manual |
 | DELETE | `/cache/{region}` | Limpar cache de uma região |
 | GET | `/predictions` | Previsões atuais carregadas |
+| GET | `/critique` | Ver último relatório de autocrítica |
+| POST | `/critique/run` | Forçar avaliação de autocrítica imediata |
+| POST | `/simulate/hit?cache_key=...` | Simular cache hit (demo) |
+| POST | `/simulate/miss?cache_key=...` | Simular cache miss (demo) |
+
+## Ciclo de Autocrítica (Self-Critic Loop)
+
+O módulo avalia periodicamente (a cada 5 min por omissão) se a taxa real de cache hits está a atingir o nível esperado:
+
+```
+Cache Warmer → Redis → Hit/Miss events
+                            │
+                     Self Critic (a cada 5 min)
+                            │  hit_rate < threshold?
+                            ▼
+                    data/feedback.json  ← escreve crítica detalhada
+                            │
+                        AI Module  ← lê feedback
+                            │
+                    data/predictions.json  ← reescreve com estratégia corrigida
+                            │
+                    PredictionWatcher  ← deteta mudança → novo plano de cache
+```
+
+Se o desempenho for inferior ao esperado (ex: hit rate < 50%), o ficheiro `data/feedback.json` é gerado com:
+- Regiões e serviços sub-performantes.
+- Diagnóstico da diferença (gap) entre a hit rate real e a esperada.
+- Recomendações automáticas para o AI (aumentar `cache_size_mb`, antecipar `lead_time_minutes` ou adicionar `content_keys`).

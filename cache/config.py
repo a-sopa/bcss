@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # Scheduler
     watcher_poll_seconds: int = 10           # How often to re-read predictions file
     warm_check_interval_seconds: int = 30    # Scheduler tick
+    critic_interval_seconds: int = 300       # Self-critic evaluation interval (5 min)
 
     # API
     api_host: str = "0.0.0.0"

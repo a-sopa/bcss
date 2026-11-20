@@ -67,9 +67,40 @@ class CacheWarmer:
         if self._redis:
             await self._redis.aclose()
 
-    def update_plan(self, plan: CachePlan):
-        """Update the active cache plan (called by planner)."""
-        self._plan = plan
+    def update_plan(self, new_plan: CachePlan):
+        """
+        Merge new plan with existing plan incrementally (Reconciliation Loop).
+        Preserves active state (HOT, WARMING), warmed timestamps, and hit/miss metrics
+        so that running servers and active caches are NOT disrupted.
+        """
+        if not self._plan:
+            self._plan = new_plan
+            return
+
+        # Reconciliation / Delta Merge
+        for region, new_rplans in new_plan.region_plans.items():
+            existing_rplans = self._plan.region_plans.get(region, [])
+            existing_by_pred_id = {p.prediction_id: p for p in existing_rplans}
+
+            for new_rp in new_rplans:
+                if new_rp.prediction_id in existing_by_pred_id:
+                    old_rp = existing_by_pred_id[new_rp.prediction_id]
+                    
+                    # Se a cache já estava HOT, WARMING ou COOLING, preserva o estado!
+                    if old_rp.status in (WarmingStatus.HOT, WarmingStatus.WARMING, WarmingStatus.COOLING):
+                        new_rp.status = old_rp.status
+                        new_rp.warmed_at = old_rp.warmed_at
+                    
+                    # Preserva métricas históricas de hits e misses por chave
+                    old_entries_by_key = {e.cache_key: e for e in old_rp.entries}
+                    for new_entry in new_rp.entries:
+                        if new_entry.cache_key in old_entries_by_key:
+                            old_entry = old_entries_by_key[new_entry.cache_key]
+                            new_entry.hit_count = old_entry.hit_count
+                            new_entry.miss_count = old_entry.miss_count
+
+        self._plan = new_plan
+        logger.info("🔄 Cache plan merged incrementally — running caches preserved without disruption")
 
     @property
     def current_plan(self) -> CachePlan | None:

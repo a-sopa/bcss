@@ -18,13 +18,15 @@ router = APIRouter()
 _warmer = None
 _watcher = None
 _planner = None
+_critic = None
 
 
-def set_dependencies(warmer, watcher, planner):
-    global _warmer, _watcher, _planner
+def set_dependencies(warmer, watcher, planner, critic):
+    global _warmer, _watcher, _planner, _critic
     _warmer = warmer
     _watcher = watcher
     _planner = planner
+    _critic = critic
 
 
 # ─── Health & Status ────────────────────────────────────────────────────────
@@ -191,3 +193,66 @@ async def simulate_miss(cache_key: str):
     if _warmer:
         await _warmer.record_miss(cache_key)
     return {"cache_key": cache_key, "event": "miss"}
+
+
+# ─── Self-Critic ─────────────────────────────────────────────────────────────
+
+@router.get("/critique")
+async def get_critique():
+    """Return the latest self-critique report."""
+    if not _critic or not _critic.last_critique:
+        return {"critique": None, "message": "Nenhuma avaliação realizada ainda."}
+
+    c = _critic.last_critique
+    return {
+        "evaluated_at": c.evaluated_at,
+        "overall_passed": c.overall_passed,
+        "regions_evaluated": c.regions_evaluated,
+        "regions_failed": c.regions_failed,
+        "feedback_written_to_ai": c.feedback_written,
+        "critiques": [
+            {
+                "region": r.region,
+                "event_name": r.event_name,
+                "passed": r.passed,
+                "actual_hit_rate": r.overall_hit_rate,
+                "expected_hit_rate": r.expected_hit_rate,
+                "total_requests": r.total_requests,
+                "allocated_mb": r.allocated_mb,
+                "recommendation": r.recommendation,
+                "services": [
+                    {
+                        "service": s.service,
+                        "platform": s.platform,
+                        "verdict": s.verdict,
+                        "actual_hit_rate": s.actual_hit_rate,
+                        "expected_hit_rate": s.expected_hit_rate,
+                        "hits": s.hits,
+                        "misses": s.misses,
+                        "suggestion": s.suggestion,
+                    }
+                    for s in r.services
+                ],
+            }
+            for r in c.critiques
+        ],
+    }
+
+
+@router.post("/critique/run")
+async def run_critique():
+    """Force an immediate self-critique evaluation (useful for demos)."""
+    plan = _warmer.current_plan if _warmer else None
+    if not plan:
+        return {"message": "Nenhum plano ativo para avaliar."}
+    if not _critic:
+        return {"message": "Self-critic não inicializado."}
+
+    report = _critic.evaluate(plan)
+    return {
+        "message": "Avaliação de autocrítica concluída.",
+        "overall_passed": report.overall_passed,
+        "regions_evaluated": report.regions_evaluated,
+        "regions_failed": report.regions_failed,
+        "feedback_written_to_ai": report.feedback_written,
+    }

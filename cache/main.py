@@ -25,6 +25,7 @@ from config import settings
 from services.prediction_watcher import PredictionWatcher
 from services.cache_planner import CachePlanner
 from services.cache_warmer import CacheWarmer
+from services.self_critic import SelfCritic
 from api.routes import router, set_dependencies
 
 # ─── Logging ────────────────────────────────────────────────────────────────
@@ -43,6 +44,7 @@ logger = logging.getLogger("cache")
 watcher = PredictionWatcher()
 planner = CachePlanner()
 warmer = CacheWarmer()
+critic = SelfCritic()
 scheduler = AsyncIOScheduler()
 
 
@@ -68,6 +70,13 @@ async def warmer_tick():
     await warmer.tick()
 
 
+async def critic_tick():
+    """Periodic job: evaluate cache performance and write feedback if needed."""
+    plan = warmer.current_plan
+    if plan:
+        critic.evaluate(plan)
+
+
 # ─── FastAPI lifespan ────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -85,7 +94,7 @@ async def lifespan(app: FastAPI):
         logger.warning(f"⚠️  Redis not available: {exc} — running in plan-only mode")
 
     # Register routes
-    set_dependencies(warmer, watcher, planner)
+    set_dependencies(warmer, watcher, planner, critic)
 
     # Start scheduler
     scheduler.add_job(
@@ -100,6 +109,13 @@ async def lifespan(app: FastAPI):
         "interval",
         seconds=settings.warm_check_interval_seconds,
         id="warmer_tick",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        critic_tick,
+        "interval",
+        seconds=settings.critic_interval_seconds,
+        id="critic_tick",
         replace_existing=True,
     )
     scheduler.start()
