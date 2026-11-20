@@ -189,7 +189,7 @@ class PredictionFile(BaseModel):
                         svc = ServicePrediction(
                             name=category,
                             platforms=[ev.get("country", dep_name)],
-                            priority=min(1.0, float(ev.get("adjusted_effect", 0.8))),
+                            priority=max(0.0, min(1.0, float(ev.get("adjusted_effect", 0.8)))),
                             cache_size_mb=384 if multiplier >= 1.5 else 256,
                             content_keys=routes,
                         )

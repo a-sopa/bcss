@@ -1,10 +1,12 @@
 {
   "python.analysis.extraPaths": [
     "${workspaceFolder}/scraper-ai",
+    "${workspaceFolder}/server-preheat",
     "/home/afonsosopa/.local/lib/python3.14/site-packages"
   ],
   "python.autoComplete.extraPaths": [
     "${workspaceFolder}/scraper-ai",
+    "${workspaceFolder}/server-preheat",
     "/home/afonsosopa/.local/lib/python3.14/site-packages"
   ],
   "python.defaultInterpreterPath": "/usr/bin/python3"
