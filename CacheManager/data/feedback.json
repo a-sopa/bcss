@@ -1,75 +1,30 @@
 {
   "type": "cache_performance_feedback",
-  "evaluated_at": "2026-11-20T11:50:02.380950+00:00",
+  "evaluated_at": "2026-11-20T13:08:42.998940+00:00",
   "summary": {
-    "regions_evaluated": 2,
+    "regions_evaluated": 1,
     "regions_failed": 1,
     "overall_passed": false
   },
   "failed_regions": [
     {
-      "region": "us-east-1",
-      "prediction_id": "pred-003",
-      "event_name": "US Presidential Announcement",
-      "actual_hit_rate": 0.2,
+      "region": "eu-west-3",
+      "prediction_id": "feed-eu-west-0",
+      "event_name": "OGC Nice vs Paris Saint-Germain FC [FL1/REGULAR_SEASON]",
+      "actual_hit_rate": 0.2414,
       "expected_hit_rate": 0.5,
-      "total_requests": 600,
-      "current_allocated_mb": 448.0,
-      "recommendation": "Região 'us-east-1' com hit_rate=20.0% (esperado ≥ 50.0%, gap=30.0%). Serviços problemáticos: news_portals, social_media. Recomenda-se: aumentar cache_size_mb, aumentar lead_time_minutes ou adicionar mais content_keys específicos para pre-aquecimento.",
+      "total_requests": 29,
+      "current_allocated_mb": 384.0,
+      "recommendation": "Região 'eu-west-3' com hit_rate=24.1% (esperado ≥ 50.0%, gap=25.9%). Serviços problemáticos: sports. Recomenda-se: aumentar cache_size_mb, aumentar lead_time_minutes ou adicionar mais content_keys específicos para pre-aquecimento.",
       "underperforming_services": [
         {
-          "service": "news_portals",
-          "platform": "CNN",
-          "actual_hit_rate": 0.2,
+          "service": "sports",
+          "platform": "FR",
+          "actual_hit_rate": 0.2414,
           "expected_hit_rate": 0.5,
-          "hits": 20,
-          "misses": 80,
-          "suggestion": "Hit rate moderadamente baixa (gap=30.0%). Sugestão: aumentar cache_size_mb para 96 MB."
-        },
-        {
-          "service": "news_portals",
-          "platform": "BBC",
-          "actual_hit_rate": 0.2,
-          "expected_hit_rate": 0.5,
-          "hits": 20,
-          "misses": 80,
-          "suggestion": "Hit rate moderadamente baixa (gap=30.0%). Sugestão: aumentar cache_size_mb para 96 MB."
-        },
-        {
-          "service": "news_portals",
-          "platform": "Reuters",
-          "actual_hit_rate": 0.2,
-          "expected_hit_rate": 0.5,
-          "hits": 20,
-          "misses": 80,
-          "suggestion": "Hit rate moderadamente baixa (gap=30.0%). Sugestão: aumentar cache_size_mb para 96 MB."
-        },
-        {
-          "service": "news_portals",
-          "platform": "AP",
-          "actual_hit_rate": 0.2,
-          "expected_hit_rate": 0.5,
-          "hits": 20,
-          "misses": 80,
-          "suggestion": "Hit rate moderadamente baixa (gap=30.0%). Sugestão: aumentar cache_size_mb para 96 MB."
-        },
-        {
-          "service": "social_media",
-          "platform": "Twitter",
-          "actual_hit_rate": 0.2,
-          "expected_hit_rate": 0.5,
-          "hits": 20,
-          "misses": 80,
-          "suggestion": "Hit rate moderadamente baixa (gap=30.0%). Sugestão: aumentar cache_size_mb para 144 MB."
-        },
-        {
-          "service": "social_media",
-          "platform": "Reddit",
-          "actual_hit_rate": 0.2,
-          "expected_hit_rate": 0.5,
-          "hits": 20,
-          "misses": 80,
-          "suggestion": "Hit rate moderadamente baixa (gap=30.0%). Sugestão: aumentar cache_size_mb para 144 MB."
+          "hits": 7,
+          "misses": 22,
+          "suggestion": "Hit rate moderadamente baixa (gap=25.9%). Sugestão: aumentar cache_size_mb para 576 MB."
         }
       ]
     }

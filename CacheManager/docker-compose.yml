@@ -24,6 +24,7 @@ services:
       - CACHE_PREDICTIONS_FILE=/app/data/predictions.json
       - CACHE_WATCHER_POLL_SECONDS=10
       - CACHE_WARM_CHECK_INTERVAL_SECONDS=30
+      - CACHE_CRITIC_INTERVAL_SECONDS=300
       - CACHE_LOG_LEVEL=INFO
     volumes:
       # Partilha a pasta data/ para que o AI (ou tu no host) possa atualizar o predictions.json

@@ -240,15 +240,15 @@ async def get_critique():
 
 
 @router.post("/critique/run")
-async def run_critique():
-    """Force an immediate self-critique evaluation (useful for demos)."""
+async def run_critique(min_requests: int = 1):
+    """Force an immediate self-critique evaluation (evaluates even with few requests)."""
     plan = _warmer.current_plan if _warmer else None
     if not plan:
         return {"message": "Nenhum plano ativo para avaliar."}
     if not _critic:
         return {"message": "Self-critic não inicializado."}
 
-    report = _critic.evaluate(plan)
+    report = _critic.evaluate(plan, min_requests=min_requests)
     return {
         "message": "Avaliação de autocrítica concluída.",
         "overall_passed": report.overall_passed,
