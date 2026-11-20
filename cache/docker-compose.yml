@@ -1,0 +1,35 @@
+services:
+  # Servidor Redis em memória
+  redis:
+    image: redis:alpine
+    container_name: cache-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Módulo de Inteligência de Cache (FastAPI + Scheduler + Warmer)
+  cache-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cache-intelligence
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - CACHE_REDIS_HOST=redis
+      - CACHE_REDIS_PORT=6379
+      - CACHE_PREDICTIONS_FILE=/app/data/predictions.json
+      - CACHE_WATCHER_POLL_SECONDS=10
+      - CACHE_WARM_CHECK_INTERVAL_SECONDS=30
+      - CACHE_LOG_LEVEL=INFO
+    volumes:
+      # Partilha a pasta data/ para que o AI (ou tu no host) possa atualizar o predictions.json
+      - ./data:/app/data
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:

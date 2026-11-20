@@ -1,0 +1,102 @@
+{
+  "generated_at": "2026-11-20T19:00:00Z",
+  "predictions": [
+    {
+      "id": "pred-001",
+      "region": "eu-west-1",
+      "event_type": "football_match",
+      "event_name": "Benfica vs Porto - Primeira Liga",
+      "event_start": "2026-11-20T20:45:00Z",
+      "lead_time_minutes": 60,
+      "confidence": 0.97,
+      "expected_load_multiplier": 5.2,
+      "services": [
+        {
+          "name": "streaming_video",
+          "platforms": ["DAZN", "SportTV", "Eleven"],
+          "priority": 1.0,
+          "cache_size_mb": 512,
+          "content_keys": [
+            "https://dazn.com/api/live/benfica-porto",
+            "https://sporttv.pt/stream/live/1"
+          ]
+        },
+        {
+          "name": "social_media",
+          "platforms": ["Twitter", "Instagram"],
+          "priority": 0.75,
+          "cache_size_mb": 128,
+          "content_keys": []
+        },
+        {
+          "name": "news_portals",
+          "platforms": ["Record", "ABOLA", "Maisfutebol"],
+          "priority": 0.6,
+          "cache_size_mb": 64,
+          "content_keys": []
+        }
+      ]
+    },
+    {
+      "id": "pred-002",
+      "region": "eu-west-2",
+      "event_type": "concert",
+      "event_name": "Taylor Swift - Wembley Stadium",
+      "event_start": "2026-11-21T19:30:00Z",
+      "lead_time_minutes": 90,
+      "confidence": 0.91,
+      "expected_load_multiplier": 3.8,
+      "services": [
+        {
+          "name": "streaming_music",
+          "platforms": ["Spotify", "Apple Music", "YouTube Music"],
+          "priority": 1.0,
+          "cache_size_mb": 384,
+          "content_keys": []
+        },
+        {
+          "name": "ticketing",
+          "platforms": ["Ticketmaster"],
+          "priority": 0.85,
+          "cache_size_mb": 96,
+          "content_keys": [
+            "https://ticketmaster.co.uk/event/taylor-swift-wembley"
+          ]
+        },
+        {
+          "name": "social_media",
+          "platforms": ["TikTok", "Instagram", "Twitter"],
+          "priority": 0.9,
+          "cache_size_mb": 192,
+          "content_keys": []
+        }
+      ]
+    },
+    {
+      "id": "pred-003",
+      "region": "us-east-1",
+      "event_type": "news_spike",
+      "event_name": "US Presidential Announcement",
+      "event_start": "2026-11-20T21:00:00Z",
+      "lead_time_minutes": 30,
+      "confidence": 0.78,
+      "expected_load_multiplier": 6.1,
+      "services": [
+        {
+          "name": "news_portals",
+          "platforms": ["CNN", "BBC", "Reuters", "AP"],
+          "priority": 1.0,
+          "cache_size_mb": 256,
+          "content_keys": []
+        },
+        {
+          "name": "social_media",
+          "platforms": ["Twitter", "Reddit"],
+          "priority": 0.95,
+          "cache_size_mb": 192,
+          "content_keys": []
+        }
+      ]
+    }
+  ]
+}
