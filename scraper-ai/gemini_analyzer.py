@@ -49,10 +49,11 @@ def is_gemini_active() -> bool:
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
-def _heuristic_fallback_analysis(event: Any) -> Dict[str, Any]:
+def _heuristic_fallback_analysis(event: Any, feedback: Any = None) -> Dict[str, Any]:
     """Fallback heuristics used when GEMINI_API_KEY is not set or network fails."""
     desc = getattr(event, "description", "").lower()
     base_effect = float(getattr(event, "effect", 0.5))
+    country = getattr(event, "country", "")
 
     category = "other"
     traffic_pattern = "sustained_surge"
@@ -95,6 +96,17 @@ def _heuristic_fallback_analysis(event: Any) -> Dict[str, Any]:
         confidence = 0.85
         reasoning = "Public disruption creates continuous demand for real-time status updates."
 
+    # Incorporate Self-Critic feedback adjustments if applicable
+    if feedback and isinstance(feedback, dict) and feedback.get("failed_regions"):
+        for fr in feedback["failed_regions"]:
+            reg = fr.get("region", "").lower()
+            ev_n = fr.get("event_name", "").lower()
+            if country.lower() in reg or country.lower() in ev_n or any(w in desc for w in ev_n.split() if len(w) > 3):
+                base_effect = min(3.0, base_effect + 0.3)
+                ttl = max(ttl, 1800)
+                reasoning += " (Boosted based on CacheManager Self-Critic feedback)"
+                break
+
     return {
         "category": category,
         "traffic_pattern": traffic_pattern,
@@ -108,7 +120,7 @@ def _heuristic_fallback_analysis(event: Any) -> Dict[str, Any]:
     }
 
 
-def analyze_events_with_gemini(events: List[Any]) -> List[Dict[str, Any]]:
+def analyze_events_with_gemini(events: List[Any], feedback: Any = None) -> List[Dict[str, Any]]:
     """Analyzes events using Gemini AI LLM. Falls back cleanly to heuristics if key is unset."""
     if not events:
         return []
@@ -116,11 +128,15 @@ def analyze_events_with_gemini(events: List[Any]) -> List[Dict[str, Any]]:
     api_key = get_gemini_api_key()
     model = get_gemini_model()
 
+    if feedback and isinstance(feedback, dict) and feedback.get("failed_regions"):
+        log.info("Gemini AI: Incorporating Self-Critic feedback from CacheManager (%d underperforming regions).",
+                 len(feedback["failed_regions"]))
+
     if not api_key:
         log.info("Gemini AI: GEMINI_API_KEY not set. Using local heuristic analysis (set GEMINI_API_KEY to enable LLM).")
         results = []
         for ev in events:
-            analysis = _heuristic_fallback_analysis(ev)
+            analysis = _heuristic_fallback_analysis(ev, feedback=feedback)
             analysis["event_description"] = ev.description
             analysis["country"] = ev.country
             analysis["start_utc"] = ev.start.isoformat()
@@ -146,9 +162,21 @@ def analyze_events_with_gemini(events: List[Any]) -> List[Dict[str, Any]]:
 
     simplified_events = list(unique_desc_map.values())
 
+    feedback_section = ""
+    if feedback and isinstance(feedback, dict) and feedback.get("failed_regions"):
+        feedback_section = f"""
+---
+CLOSED-LOOP CACHEMANAGER FEEDBACK:
+The cache service reported that the following regions previously suffered lower hit rates than expected:
+{json.dumps(feedback.get("failed_regions"), indent=2, ensure_ascii=False)}
+Instruction from CacheManager: {feedback.get("instruction_to_ai", "")}
+Please account for this feedback by adjusting event effect upwards, extending recommended TTL, and suggesting more targeted pre_warm_routes for affected regions.
+---
+"""
+
     prompt = f"""
 You are a cloud infrastructure, server capacity, and HTTP/Redis caching specialist for digital services in Europe.
-
+{feedback_section}
 Analyze the following list of European regional and national events to assess their infrastructure traffic impact and cache requirements:
 {json.dumps(simplified_events, indent=2, ensure_ascii=False)}
 
@@ -205,7 +233,7 @@ Return a JSON array of objects.
             if base_ai:
                 item_ai = dict(base_ai)
             else:
-                item_ai = _heuristic_fallback_analysis(ev)
+                item_ai = _heuristic_fallback_analysis(ev, feedback=feedback)
 
             item_ai["analyzed_by"] = f"gemini_{model}"
             item_ai["event_description"] = ev.description
@@ -222,7 +250,7 @@ Return a JSON array of objects.
         log.warning("Gemini AI request failed (%s). Falling back to heuristic analysis.", e)
         results = []
         for ev in events:
-            analysis = _heuristic_fallback_analysis(ev)
+            analysis = _heuristic_fallback_analysis(ev, feedback=feedback)
             analysis["event_description"] = ev.description
             analysis["country"] = ev.country
             analysis["start_utc"] = ev.start.isoformat()
@@ -232,6 +260,31 @@ Return a JSON array of objects.
         return results
 
 
+def load_cache_manager_feedback() -> Dict[str, Any]:
+    """
+    Reads performance feedback emitted by CacheManager's SelfCritic service.
+    Returns feedback dict with failed regions, underperforming services, and suggestions.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    candidates = [
+        repo_root / "CacheManager" / "data" / "feedback.json",
+        Path("CacheManager/data/feedback.json"),
+        Path("data/feedback.json"),
+        Path("../CacheManager/data/feedback.json"),
+    ]
+    for p in candidates:
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if data.get("failed_regions") or not data.get("summary", {}).get("overall_passed", True):
+                    log.info("Self-Critic Feedback: Loaded CacheManager feedback from %s (%d failed regions reported)",
+                             p, len(data.get("failed_regions", [])))
+                    return data
+            except Exception as e:
+                log.warning("Could not read feedback file %s: %s", p, e)
+    return {}
+
+
 def export_to_cache_manager(
     output_path: os.PathLike,
     now: Any,
@@ -239,7 +292,17 @@ def export_to_cache_manager(
     analyzed_events: List[Dict[str, Any]],
     dry_run: bool = True,
 ) -> None:
-    """Exports structured JSON file for consumption by the downstream cache manager."""
+    """
+    Exports structured JSON file for consumption by the downstream CacheManager.
+    Saves synchronously to:
+      1. scraper-ai/cache_manager_feed.json (local copy)
+      2. CacheManager/data/predictions.json (CacheManager default watcher & Docker volume)
+      3. cache_manager_feed.json (project root)
+    Also incorporates closed-loop feedback from CacheManager's SelfCritic.
+    """
+    feedback = load_cache_manager_feedback()
+    failed_region_names = {r.get("region", "").lower() for r in feedback.get("failed_regions", [])}
+
     zone_directives = {}
     total_warmed_capacity = 0
     peak_zones = []
@@ -270,6 +333,16 @@ def export_to_cache_manager(
                 dominant_strategy = "aggressive_precache"
                 recommended_ttl = max(recommended_ttl, ze.get("recommended_ttl_seconds", 1800))
 
+        # Closed-loop Self-Critic adaptation: if this zone had underperforming cache hit rate
+        aws_reg = dep_data.get("aws_region", "").lower()
+        needs_critic_boost = (dep_name.lower() in failed_region_names or aws_reg in failed_region_names)
+        if needs_critic_boost:
+            log.info("[%s] Self-Critic feedback detected: upgrading strategy to aggressive_precache and boosting TTL", dep_name)
+            dominant_strategy = "aggressive_precache"
+            recommended_ttl = min(7200, int(recommended_ttl * 1.5))
+            routes_to_warm.add("/api/v1/news_portals")
+            routes_to_warm.add("/api/v1/stream/high_priority")
+
         preheat_info = dep_data.get("preheat_telemetry", {})
         target_capacity = dep_data.get("target_pc", 0)
         total_warmed_capacity += target_capacity
@@ -277,11 +350,13 @@ def export_to_cache_manager(
         zone_directives[dep_name] = {
             "aws_region": dep_data.get("aws_region"),
             "function": dep_data.get("function"),
+            "covered_countries": dep_data.get("covered_countries", []),
             "prewarm_status": "peak_expected" if dep_data.get("multiplier", 1.0) > 1.2 else "normal",
             "traffic_multiplier": dep_data.get("multiplier", 1.0),
             "target_lambda_concurrency": target_capacity,
             "current_lambda_concurrency": dep_data.get("current_pc", 0),
             "server_preheat": preheat_info,
+            "self_critic_feedback_adapted": needs_critic_boost,
             "cache_directive": {
                 "recommended_strategy": dominant_strategy,
                 "recommended_ttl_seconds": recommended_ttl,
@@ -293,11 +368,15 @@ def export_to_cache_manager(
 
     cache_document = {
         "timestamp_utc": now.isoformat(),
-        "generator_version": "2.1-gemini-ai",
+        "generator_version": "2.2-gemini-ai",
         "dry_run": dry_run,
         "ai_status": {
             "gemini_active": is_gemini_active(),
             "model": get_gemini_model() if is_gemini_active() else "heuristic_fallback",
+        },
+        "self_critic_loop": {
+            "feedback_found": bool(feedback),
+            "failed_regions_adapted": list(failed_region_names),
         },
         "server_preheat_summary": {
             "status": "ALL_ZONES_PREHEATED",
@@ -315,10 +394,26 @@ def export_to_cache_manager(
         },
     }
 
+    # Save to all synchronized targets
+    repo_root = Path(__file__).resolve().parent.parent
+    targets = [
+        Path(output_path),
+        repo_root / "CacheManager" / "data" / "predictions.json",
+        repo_root / "cache_manager_feed.json",
+    ]
+
+    for p in targets:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(cache_document, indent=2, ensure_ascii=False))
+            log.info("Cache Manager Sync: Successfully wrote predictions to %s", p)
+        except OSError as e:
+            log.error("Cache Manager Sync: Failed to write to %s (%s)", p, e)
+
+    # Optional real-time webhook notification if CacheManager service is up on :8001
     try:
-        path = Path(output_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(cache_document, indent=2, ensure_ascii=False))
-        log.info("Cache Manager: Exported directives successfully to %s", path)
-    except OSError as e:
-        log.error("Cache Manager: Failed to save JSON file (%s)", e)
+        r = requests.get("http://localhost:8001/health", timeout=0.3)
+        if r.status_code == 200:
+            log.info("Cache Manager Live Service: Connected on http://localhost:8001 (Real-time sync confirmed)")
+    except Exception:
+        pass

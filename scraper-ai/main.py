@@ -81,6 +81,7 @@ from gemini_analyzer import (
     analyze_events_with_gemini,
     export_to_cache_manager,
     is_gemini_active,
+    load_cache_manager_feedback,
 )
 from preheat_engine import ServerPreheatEngine
 
@@ -675,11 +676,14 @@ def main():
     if boto3 is None:
         log.info("Package 'boto3' not installed: running in local simulation mode / exporting to cache manager")
 
+    # 0. Load feedback from CacheManager Self-Critic if available
+    cache_feedback = load_cache_manager_feedback()
+
     # 1. Collect events from all active sources
     events = collect_all_events(now)
 
     # 2. Analyze events and extract cache directives using Google Gemini AI
-    analyzed_events = analyze_events_with_gemini(events)
+    analyzed_events = analyze_events_with_gemini(events, feedback=cache_feedback)
 
     # 3. Fine-tune event effects based on AI adjustments
     for e, ai_data in zip(events, analyzed_events):

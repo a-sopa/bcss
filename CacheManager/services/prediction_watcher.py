@@ -40,18 +40,28 @@ class PredictionWatcher:
             return self._current_predictions
 
     def _resolve_path(self) -> Path | None:
-        """Finds the active predictions file (configured, or teammate's feed)."""
+        """Finds the active predictions file, prioritizing the freshest (most recently updated)."""
+        base_dir = Path(__file__).resolve().parent.parent
+        repo_root = base_dir.parent
         candidates = [
             self._path,
+            base_dir / "data" / "predictions.json",
+            repo_root / "CacheManager" / "data" / "predictions.json",
+            repo_root / "scraper-ai" / "cache_manager_feed.json",
+            repo_root / "cache_manager_feed.json",
+            base_dir.parent / "scraper-ai" / "cache_manager_feed.json",
             Path("data/predictions.json"),
+            Path("CacheManager/data/predictions.json"),
+            Path("scraper-ai/cache_manager_feed.json"),
             Path("../cache_manager_feed.json"),
             Path("cache_manager_feed.json"),
             Path("../scraper-ai/cache_manager_feed.json"),
         ]
-        for p in candidates:
-            if p.exists():
-                return p
-        return None
+        existing = [p.resolve() for p in candidates if p.exists()]
+        if not existing:
+            return None
+        # Select the most recently updated predictions / feed file
+        return max(set(existing), key=lambda p: p.stat().st_mtime)
 
     def check(self) -> bool:
         """
