@@ -13,9 +13,9 @@
   --color-warn: #f5b85a;
   --color-danger: #ff7a8a;
 
-  --font-display: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-mono: "Share Tech Mono", ui-monospace, monospace;
   --font-code: "Share Tech Mono", ui-monospace, monospace;
   --font-tech: "Chakra Petch", ui-sans-serif, sans-serif;
 
@@ -66,6 +66,17 @@
     radial-gradient(ellipse 70% 70% at 50% 50%, rgb(0 51 153 / 0.35), transparent 80%);
 }
 
+.signin-atmosphere {
+  background:
+    radial-gradient(ellipse 45% 60% at 72% 50%, rgb(0 51 153 / 0.35), transparent 75%),
+    radial-gradient(ellipse 40% 50% at 25% 50%, rgb(66 214 197 / 0.05), transparent 75%);
+}
+
+.signin-divider {
+  background: linear-gradient(180deg, transparent, rgb(66 214 197 / 0.6) 30%, rgb(66 214 197 / 0.6) 70%, transparent);
+  box-shadow: 0 0 12px rgb(66 214 197 / 0.45);
+}
+
 .europe-atmosphere {
   background:
     radial-gradient(ellipse 45% 60% at 85% 40%, rgb(82 139 255 / 0.08), transparent 70%),
@@ -103,6 +114,140 @@
 
 @keyframes caret {
   50% { opacity: 0; }
+}
+
+/* ---------- About popup ---------- */
+
+.about-panel {
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 0%, rgb(0 51 153 / 0.22), transparent 70%),
+    var(--color-navy-950);
+  box-shadow: 0 40px 120px -40px rgb(0 0 0 / 0.9), 0 0 0 1px rgb(66 214 197 / 0.04);
+}
+
+/* ---------- Team cards ---------- */
+
+/* Soft edges so no row is ever cut in half at the top or bottom of a card. */
+.curtain {
+  mask-image: linear-gradient(180deg, transparent 0, #000 9%, #000 78%, transparent 100%);
+}
+
+.curtain-col {
+  white-space: pre;
+  font: 17px/1.35 var(--font-code);
+  color: rgb(111 228 214 / 0.55);
+  text-shadow: 0 0 6px rgb(111 228 214 / 0.35);
+  transition: transform 0.9s cubic-bezier(0.6, 0, 0.2, 1), opacity 0.9s;
+}
+
+.team-card-photo {
+  opacity: 0;
+  transform: translateY(6%) scale(0.97);
+  filter: drop-shadow(0 0 24px rgb(66 214 197 / 0.18));
+  transition: opacity 0.6s var(--ease-soft), transform 0.8s var(--ease-soft);
+}
+
+.team-card:hover .team-card-photo,
+.team-card:focus-within .team-card-photo {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0.25s;
+}
+
+.team-card-body {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.5s var(--ease-soft), transform 0.6s var(--ease-soft);
+}
+
+.team-card {
+  transition: border-color 0.4s;
+}
+
+.team-card:hover,
+.team-card:focus-within {
+  border-color: rgb(66 214 197 / 0.45);
+}
+
+.team-card:hover .curtain-col,
+.team-card:focus-within .curtain-col {
+  transform: translateY(105%);
+  opacity: 0.2;
+}
+
+.team-card:hover .team-card-body,
+.team-card:focus-within .team-card-body {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0.35s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .curtain-col,
+  .team-card-photo,
+  .team-card-body {
+    transition: none;
+  }
+}
+
+/* ---------- Europe call to action ---------- */
+
+.europe-cta {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 3.75rem;
+  padding: 0 2.25rem;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--color-navy-950), var(--color-navy-950)) padding-box,
+    linear-gradient(120deg, #fff1a8, #ffcc00 45%, #e0a100) border-box;
+  color: #ffd84d;
+  font: 18px var(--font-code);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  overflow: hidden;
+  box-shadow: 0 0 28px -6px rgb(255 204 0 / 0.45), inset 0 0 18px -8px rgb(255 204 0 / 0.5);
+  transition: box-shadow 0.4s var(--ease-soft), color 0.4s, background 0.4s;
+}
+
+/* A light sweep crossing the button every few seconds. */
+.europe-cta::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgb(255 230 140 / 0.35) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: cta-sweep 3.6s var(--ease-soft) infinite;
+}
+
+.europe-cta:hover {
+  color: var(--color-navy-950);
+  background:
+    linear-gradient(120deg, #fff1a8, #ffcc00 45%, #e0a100) padding-box,
+    linear-gradient(120deg, #fff1a8, #ffcc00 45%, #e0a100) border-box;
+  box-shadow: 0 0 46px -4px rgb(255 204 0 / 0.7);
+}
+
+.europe-cta svg {
+  transition: transform 0.4s var(--ease-soft);
+}
+
+.europe-cta:hover svg {
+  transform: translateX(4px);
+}
+
+@keyframes cta-sweep {
+  0%, 55% { transform: translateX(-120%); }
+  100%    { transform: translateX(120%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .europe-cta::before {
+    animation: none;
+  }
 }
 
 /* ---------- Europe stars ---------- */

@@ -427,6 +427,38 @@ class Runtime:
             tar.addfile(info, io.BytesIO(data))
         router.put_archive("/config", archive.getvalue())
 
+    def write_router_file(self, app_id: str, name: str, content: dict[str, Any]) -> bool:
+        """Write /config/<name> in the router (security.json, preheat.json). False when there is no router."""
+        router = self._get(self.router_name(app_id))
+        if router is None or router.status != "running":
+            return False
+        data = json.dumps(content).encode()
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w") as tar:
+            info = tarfile.TarInfo(name)
+            info.size, info.mtime, info.mode = len(data), int(time.time()), 0o644
+            tar.addfile(info, io.BytesIO(data))
+        router.put_archive("/config", archive.getvalue())
+        return True
+
+    def router_exec(self, app_id: str, command: list[str]) -> tuple[int, str]:
+        """Run a command inside the app's router (attack simulations reach it on its loopback address)."""
+        router = self._get(self.router_name(app_id))
+        if router is None or router.status != "running":
+            raise DeployError("The app's router is not running")
+        result = router.exec_run(command, user="nobody")
+        return result.exit_code, result.output.decode("utf-8", errors="replace")
+
+    def set_cpus(self, app_id: str, version: int, cpus: float) -> bool:
+        """Change a running version's CPU limit in place (preheat before a predicted peak, and back)."""
+        container = self._get(self.version_name(app_id, version))
+        if container is None or container.status != "running":
+            return False
+        api = self.client.api
+        response = api._post_json(api._url("/containers/{0}/update", container.id), data={"NanoCpus": int(cpus * 1e9)})
+        api._raise_for_status(response)
+        return True
+
     def router_metrics(self, app_id: str) -> dict[str, Any] | None:
         """The router's latest metrics, or None. The router rewrites the file every second and Docker reads
         size and content separately, so a read can catch a swap halfway: retry instead of failing."""

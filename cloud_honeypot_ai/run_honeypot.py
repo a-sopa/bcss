@@ -181,7 +181,7 @@ def cmd_demo(args) -> None:
 
     # 7. Cloud Cryptographic Posture Audit
     print("\n" + "=" * 75)
-    print("🛡️ [Step 7] CLOUD CRYPTOGRAPHIC POSTURE AUDIT (Inspired by JunctionX)")
+    print("🛡️ [Step 7] CLOUD CRYPTOGRAPHIC POSTURE AUDIT (Inspired by QuantumTrace)")
     print("=" * 75)
     audit = CRYPTO_AUDITOR.evaluate_environment(
         ssh_ciphers=["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com", "3des-cbc"],

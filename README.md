@@ -13,7 +13,7 @@ Plataforma unificada de engenharia, eficiência de custos e segurança avançada
 | **[`CacheManager`](./CacheManager)** | **Eficiência de Rede & Latência** | Serviço de cache preditivo inteligente com FastAPI e Redis, cálculo dinâmico de score multi-fator de prioridade e motor de auditoria contínua (*Self-Critic*). |
 | **[`cloud_honeypot_ai`](./cloud_honeypot_ai)** | **Segurança & Eficiência Cloud + IA** | **"A Armadilha para Hackers" (Honeypot)** com análise comportamental por IA (MITRE ATT&CK), defesa perimetral automatizada (AWS NACL / SG / iptables), cofre forense criptográfico imutável (AES-256-GCM + blockchain SHA-256) e **Active Deception** (GPS Lógico de chaves API roubadas, Prompt Injection Defensivo e Beacons de Telemetria). |
 | **[`bridge`](./bridge)** | **Orquestração & Benchmarking** | Ferramenta de avaliação arquitetural (`benchmark_comparison.py`) e orquestrador de relay bidirecional (`orchestrator.py`). |
-| **[`JunctionX`](./JunctionX)** | **Criptografia & Postura Cloud** | QuantumTrace: Auditoria estática e dinâmica de ativos criptográficos (KMS, TLS, CBOM CycloneDX 1.6), prontidão pós-quântica (PQC) e dashboard React/Vite. |
+| **[`QuantumTrace`](./QuantumTrace)** | **Criptografia & Postura Cloud** | QuantumTrace: Auditoria estática e dinâmica de ativos criptográficos (KMS, TLS, CBOM CycloneDX 1.6), prontidão pós-quântica (PQC) e dashboard React/Vite. |
 | **[`control-plane`](./control-plane) + [`frontend`](./frontend)** | **OwnCloud — Cloud europeia** | Cloud que corre apps em contentores Docker, com consola web, editor de código com análise de segurança, Smart CI/CD, canary com rollback automático, migração desde AWS e extensão VS Code (ver secção OwnCloud abaixo). |
 
 ---
@@ -289,7 +289,7 @@ bound to `0.0.0.0`; and for a public deployment, serve the console and the apps 
 | `scripts/` | End-to-end checks: `test-ai-features.py`, `test-vscode.py` |
 | `security-tests/` | Attack suite run against the live stack |
 | `vscode-extension/` | OwnCloud Security extension for VS Code |
-| `JunctionX/` | QuantumTrace scanner (teammate's code), run as its own service |
+| `QuantumTrace/` | QuantumTrace scanner (teammate's code), run as its own service |
 | `frontend/` | Website and console (Vite, React, TypeScript, Tailwind) |
 | `examples/apps/` | Sample apps: `legacy-payments` (RSA, gets blocked by the gate), `secure-notes` (AES-256), `hello-node`, `landing-static` |
 
@@ -331,7 +331,7 @@ Browser requests other than `GET` need the header `X-OwnCloud-CSRF: 1`. Tools au
 
 ```bash
 # QuantumTrace on :8001
-docker build -t owncloud/quantumtrace JunctionX && docker run -d -p 127.0.0.1:8001:8000 owncloud/quantumtrace
+docker build -t owncloud/quantumtrace QuantumTrace && docker run -d -p 127.0.0.1:8001:8000 owncloud/quantumtrace
 
 # Control plane on :8000 (then point the frontend at it with OWNCLOUD_API=http://localhost:8000)
 cd control-plane && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt

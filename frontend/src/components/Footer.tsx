@@ -14,7 +14,7 @@ export function Footer() {
         <div className="flex flex-col gap-3">
           <Brand />
           <p className="text-[13px] text-muted">
-            Designed and developed in Europe · © {new Date().getFullYear()} OwnCloud
+            Designed and developed in Europe · © {new Date().getFullYear()} BCSS
           </p>
         </div>
         <ul className="flex flex-wrap gap-x-8 gap-y-3">

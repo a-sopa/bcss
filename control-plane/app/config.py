@@ -5,6 +5,13 @@ from pathlib import Path
 
 DATA_DIR = Path(os.environ.get("OWNCLOUD_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
 QUANTUMTRACE_URL = os.environ.get("QUANTUMTRACE_URL", "http://localhost:8001").rstrip("/")
+# The team's AI services (docs/integration.md): event forecast + preheat, and threat intelligence (honeypot).
+FORECAST_URL = os.environ.get("FORECAST_URL", "http://localhost:8002").rstrip("/")
+THREATS_URL = os.environ.get("THREATS_URL", "http://localhost:8888").rstrip("/")
+# Attackers the threat service recommends blocking are blocked on every app automatically.
+AUTO_BLOCK = os.environ.get("OWNCLOUD_AUTO_BLOCK", "true").lower() == "true"
+# Preheat may raise an app's CPU limit up to this many times APP_CPUS while a predicted peak lasts.
+MAX_CPU_FACTOR = max(1.0, min(4.0, float(os.environ.get("OWNCLOUD_MAX_CPU_FACTOR", "4"))))
 
 # Hosted apps publish a random host port on this address; links use PUBLIC_HOST.
 BIND_HOST = os.environ.get("OWNCLOUD_BIND_HOST", "127.0.0.1")

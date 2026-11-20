@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS apps (
     version INTEGER,
     canary_version INTEGER,
     database TEXT,
+    security TEXT,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -84,6 +85,14 @@ CREATE TABLE IF NOT EXISTS db_actions (
     statement TEXT,
     detail TEXT
 );
+CREATE TABLE IF NOT EXISTS blocked_ips (
+    ip TEXT PRIMARY KEY,
+    reason TEXT NOT NULL,
+    app_id TEXT,
+    session_id TEXT,
+    created_by TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL NOT NULL,
@@ -105,6 +114,7 @@ MIGRATIONS = (
     ("apps", "version", "ALTER TABLE apps ADD COLUMN version INTEGER"),
     ("apps", "canary_version", "ALTER TABLE apps ADD COLUMN canary_version INTEGER"),
     ("apps", "database", "ALTER TABLE apps ADD COLUMN database TEXT"),
+    ("apps", "security", "ALTER TABLE apps ADD COLUMN security TEXT"),
 )
 
 # Per-app history tables and their JSON columns (names are constants, never user input).
@@ -116,8 +126,8 @@ HISTORY = {
 }
 
 APP_FIELDS = {"name", "runtime", "status", "detail", "enforce_gate", "image", "host_port", "scan_summary", "env", "migration",
-              "version", "canary_version", "database"}
-JSON_FIELDS = ("scan_summary", "env", "migration", "database")
+              "version", "canary_version", "database", "security"}
+JSON_FIELDS = ("scan_summary", "env", "migration", "database", "security")
 USER_FIELDS = {"role", "disabled", "salt", "password_hash"}
 
 
@@ -337,6 +347,27 @@ class Store:
             raise ValueError(f"Unknown table {table}")
         rows = self._query(f"SELECT * FROM {table} WHERE id = ?", (row_id,))
         return self._decode(table, rows[0]) if rows else None
+
+    # ------------------------------------------------------------ blocked IPs (every app's router refuses them)
+
+    def block_ip(self, ip: str, reason: str, created_by: str, app_id: str | None = None, session_id: str | None = None) -> bool:
+        """False when the IP was already blocked."""
+        with self._lock:
+            cursor = self._db.execute(
+                "INSERT OR IGNORE INTO blocked_ips (ip, reason, app_id, session_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (ip, reason, app_id, session_id, created_by, time.time()),
+            )
+            self._db.commit()
+            return cursor.rowcount == 1
+
+    def unblock_ip(self, ip: str) -> bool:
+        with self._lock:
+            cursor = self._db.execute("DELETE FROM blocked_ips WHERE ip = ?", (ip,))
+            self._db.commit()
+            return cursor.rowcount == 1
+
+    def blocked_ips(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in self._query("SELECT * FROM blocked_ips ORDER BY created_at DESC")]
 
     # ------------------------------------------------------------ events
 

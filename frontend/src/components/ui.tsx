@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 import { motion } from "motion/react";
+import { LOGO_PATHS, LOGO_VIEWBOX } from "../lib/logo";
 
 export function cx(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(" ");
@@ -18,7 +19,7 @@ export function Button({ variant = "primary", size = "md", className, ...props }
   return (
     <a
       className={cx(
-        "group inline-flex items-center justify-center gap-2 rounded-full font-medium tracking-[-0.005em] whitespace-nowrap",
+        "group inline-flex items-center justify-center gap-2 rounded-full font-code tracking-[0.04em] whitespace-nowrap",
         "transition-[background-color,border-color,color,box-shadow,transform] duration-300 ease-(--ease-soft)",
         size === "sm" ? "h-9 px-4 text-[13px]" : "h-12 px-6 text-sm",
         variant === "primary"
@@ -48,28 +49,19 @@ export function ArrowIcon({ className }: { className?: string }) {
 
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 32 22" aria-hidden="true" className={className}>
-      <defs>
-        <linearGradient id="brand-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#FFFFFF" />
-          <stop offset="1" stopColor="#9FC4FF" />
-        </linearGradient>
-      </defs>
-      <path
-        fill="url(#brand-grad)"
-        d="M8.4 21C4.3 21 1 18.2 1 14.6c0-3.3 2.6-5.9 6-6.2C8.1 4.2 11.8 1 16.3 1c4.3 0 7.9 2.9 9 6.8 3.2.5 5.7 3.3 5.7 6.6 0 3.7-3 6.6-6.8 6.6Z"
-      />
+    <svg viewBox={LOGO_VIEWBOX} aria-hidden="true" className={className} fill="currentColor">
+      {LOGO_PATHS.map((d) => (
+        <path key={d.slice(0, 24)} d={d} />
+      ))}
     </svg>
   );
 }
 
 export function Brand() {
   return (
-    <a href="#top" className="inline-flex items-center gap-2.5" aria-label="OwnCloud home">
-      <BrandMark className="h-[15px] w-[22px]" />
-      <span className="font-display text-[15px] font-semibold tracking-[-0.01em]">
-        Own<span className="font-medium text-ink/80">Cloud</span>
-      </span>
+    <a href="#top" className="inline-flex items-center gap-3" aria-label="BCSS home">
+      <BrandMark className="h-[22px] w-[39px] text-teal" />
+      <span className="font-code text-[19px] tracking-[0.12em] text-ink">BCSS</span>
     </a>
   );
 }

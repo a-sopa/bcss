@@ -30,8 +30,8 @@ Implementámos um servidor Honeypot leve que:
 5. **Otimização de Eficiência na Cloud (Defesa Ativa)**:
    - Gera regras de firewall automáticas para **AWS Network ACL (NACL)** (drop sem estado na borda da sub-rede antes de chegar ao EC2), **AWS Security Groups**, **Linux `iptables`** e **Cloudflare WAF**.
    - **Calculador de Poupança Cloud**: Quantifica GB de tráfego poupados, ciclos de CPU preservados e redução na fatura de log ingestion do CloudWatch.
-6. **Módulo Criptográfico & Ligação ao JunctionX (QuantumTrace)**:
-   - *Nota de conformidade*: O projeto original `JunctionX` foi mantido **100% inalterado**, criando este módulo independente com toda a sua utilidade.
+6. **Módulo Criptográfico & Ligação ao QuantumTrace**:
+   - *Nota de conformidade*: O projeto original `QuantumTrace` foi mantido **100% inalterado**, criando este módulo independente com toda a sua utilidade.
    - **Forensic Crypto Vault (`crypto/vault.py`)**: Encriptação autenticada **AES-256-GCM**, encadeamento imutável de blocos com **SHA-256 (estilo blockchain)** e assinaturas **HMAC-SHA256**. Prova matematicamente que as evidências dos hackers não foram manipuladas ou apagadas.
    - **Auditor de Postura Criptográfica na Cloud (`crypto/posture_auditor.py`)**: Avalia a segurança dos algoritmos SSH, TLS e chaves AWS KMS, identificando algoritmos obsoletos (3DES, SHA-1, MD5, CBC) e pontuando a preparação para Criptografia Pós-Quântica (**PQC / NIST FIPS 203 ML-KEM**).
    - **Honey-Tokens Criptográficos (`crypto/canary_keys.py`)**: Chaves RSA e credenciais AWS KMS canário espalhadas no sistema para apanhar exfiltrações em flagrante.
@@ -47,7 +47,7 @@ Implementámos um servidor Honeypot leve que:
 
 ```
 hackaton-project/
-├── JunctionX/                         # [INTACTO] Projeto anterior de criptografia
+├── QuantumTrace/                         # [INTACTO] Projeto anterior de criptografia
 └── cloud_honeypot_ai/                 # Nova Solução de Honeypot, IA e Cloud Defense
     ├── config.py                      # Portas, passwords fracas, ambiente simulado
     ├── run_honeypot.py                # CLI principal unificado
@@ -66,7 +66,7 @@ hackaton-project/
     │   ├── mitre_attack.py            # Mapeamento oficial MITRE ATT&CK
     │   ├── threat_analyzer.py         # Cálculo de Risk Score & Relatório de Ameaça
     │   └── cloud_defense.py           # Geração de regras AWS NACL/SG/iptables & ROI
-    ├── crypto/                        # Módulo Criptográfico (Utilidade JunctionX)
+    ├── crypto/                        # Módulo Criptográfico (Utilidade QuantumTrace)
     │   ├── vault.py                   # Cofre Forense (AES-256-GCM + SHA-256 + HMAC)
     │   ├── posture_auditor.py         # Auditor de Cifras, TLS, KMS e PQC NIST
     │   └── canary_keys.py             # Gerador de chaves RSA e credenciais isco
@@ -133,7 +133,7 @@ python3 -m cloud_honeypot_ai.run_honeypot deception
 # Gerar regras de firewall para a Cloud (AWS NACL, Security Groups, iptables)
 python3 -m cloud_honeypot_ai.run_honeypot defend
 
-# Executar Auditoria de Postura Criptográfica na Cloud (estilo JunctionX)
+# Executar Auditoria de Postura Criptográfica na Cloud (estilo QuantumTrace)
 python3 -m cloud_honeypot_ai.run_honeypot crypto-audit
 
 # Verificar Integridade Criptográfica do Cofre Forense
