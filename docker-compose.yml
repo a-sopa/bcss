@@ -5,6 +5,90 @@ name: owncloud
 # OWNCLOUD_ALLOW_SIGNUP=false turns off self-service sign-up (admins then create accounts).
 
 services:
+  # ==============================================================================
+  # 1. In-Memory Distributed Cache (Redis)
+  # ==============================================================================
+  redis:
+    image: redis:alpine
+    container_name: hackathon-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - hackathon-network
+
+  # ==============================================================================
+  # 2. Intelligent Cache Manager (FastAPI + Redis Planner & Self-Critic)
+  # ==============================================================================
+  cache-service:
+    build:
+      context: ./CacheManager
+      dockerfile: Dockerfile
+    container_name: hackathon-cache-service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - CACHE_REDIS_HOST=redis
+      - CACHE_REDIS_PORT=6379
+      - CACHE_PREDICTIONS_FILE=/app/data/predictions.json
+      - CACHE_WATCHER_POLL_SECONDS=10
+      - CACHE_WARM_CHECK_INTERVAL_SECONDS=30
+      - CACHE_LOG_LEVEL=INFO
+    volumes:
+      - ./CacheManager/data:/app/data
+    depends_on:
+      - redis
+    networks:
+      - hackathon-network
+
+  # ==============================================================================
+  # 3. AI Cloud Honeypot Shield & Forensic Evidence Vault
+  # ==============================================================================
+  cloud-honeypot:
+    build:
+      context: ./cloud_honeypot_ai
+      dockerfile: Dockerfile
+    container_name: hackathon-cloud-honeypot
+    restart: unless-stopped
+    ports:
+      - "8888:8888"   # Web Dashboard (Threat Intelligence & Attack Replay)
+      - "2222:2222"   # Fake SSH Decoy
+      - "8080:8080"   # Fake HTTP Web Decoy
+      - "2323:2323"   # Fake TCP/Telnet Decoy
+    environment:
+      - HONEYPOT_HOST=0.0.0.0
+      - HONEYPOT_HOSTNAME=ip-10-0-1-42.ec2.internal
+    volumes:
+      - ./cloud_honeypot_ai/data:/app/cloud_honeypot_ai/data
+    networks:
+      - hackathon-network
+
+  # ==============================================================================
+  # 4. Frontend Dashboard (React + Vite + Tailwind)
+  # ==============================================================================
+  frontend:
+    build:
+      context: ./JunctionX/web
+      dockerfile: Dockerfile
+    container_name: hackathon-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8001
+      - VITE_HONEYPOT_URL=http://localhost:8888
+    networks:
+      - hackathon-network
+    profiles:
+      - frontend
+      - full
+
+  # ==============================================================================
+  # 5. OwnCloud: QuantumTrace, control plane and website/console (:8088)
+  # ==============================================================================
   # QuantumTrace: post-quantum cryptography analysis. Internal only: not published on the host.
   quantumtrace:
     build: ./JunctionX
@@ -50,4 +134,9 @@ services:
       - "127.0.0.1:8088:80"
 
 volumes:
+  redis_data:
   owncloud-data:
+
+networks:
+  hackathon-network:
+    driver: bridge

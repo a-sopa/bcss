@@ -1,0 +1,33 @@
+{
+  "type": "cache_performance_feedback",
+  "evaluated_at": "2026-11-20T13:08:42.998940+00:00",
+  "summary": {
+    "regions_evaluated": 1,
+    "regions_failed": 1,
+    "overall_passed": false
+  },
+  "failed_regions": [
+    {
+      "region": "eu-west-3",
+      "prediction_id": "feed-eu-west-0",
+      "event_name": "OGC Nice vs Paris Saint-Germain FC [FL1/REGULAR_SEASON]",
+      "actual_hit_rate": 0.2414,
+      "expected_hit_rate": 0.5,
+      "total_requests": 29,
+      "current_allocated_mb": 384.0,
+      "recommendation": "Região 'eu-west-3' com hit_rate=24.1% (esperado ≥ 50.0%, gap=25.9%). Serviços problemáticos: sports. Recomenda-se: aumentar cache_size_mb, aumentar lead_time_minutes ou adicionar mais content_keys específicos para pre-aquecimento.",
+      "underperforming_services": [
+        {
+          "service": "sports",
+          "platform": "FR",
+          "actual_hit_rate": 0.2414,
+          "expected_hit_rate": 0.5,
+          "hits": 7,
+          "misses": 22,
+          "suggestion": "Hit rate moderadamente baixa (gap=25.9%). Sugestão: aumentar cache_size_mb para 576 MB."
+        }
+      ]
+    }
+  ],
+  "instruction_to_ai": "A cache está a performar abaixo do esperado nas regiões listadas. Por favor, revê as previsões e ajusta: aumenta cache_size_mb dos serviços problemáticos, aumenta lead_time_minutes para pre-aquecer mais cedo, e/ou adiciona content_keys específicos. Gera um novo predictions.json."
+}

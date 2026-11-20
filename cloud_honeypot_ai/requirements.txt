@@ -1,0 +1,2 @@
+# Core dependencies for Cloud Honeypot AI Shield
+cryptography>=41.0.0
