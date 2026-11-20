@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, AuthError, UNAUTHORIZED_EVENT, type Me } from "../lib/api";
+import { api, UNAUTHORIZED_EVENT, type Me } from "../lib/api";
 import { BrandMark, cx } from "../components/ui";
 import { BinaryField } from "../components/BinaryField";
 
@@ -134,7 +134,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         setMe(user);
         setState("signed-in");
       },
-      (e) => setState("signed-out"),
+      () => setState("signed-out"),
     );
 
   useEffect(() => {
