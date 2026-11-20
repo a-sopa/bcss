@@ -1,20 +1,38 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, AuthError, UNAUTHORIZED_EVENT } from "../lib/api";
-import { Brand } from "../components/ui";
+import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { api, AuthError, UNAUTHORIZED_EVENT, type Me } from "../lib/api";
+import { Brand, cx } from "../components/ui";
 
-type State = "checking" | "signed-out" | "signed-in";
+const UserContext = createContext<Me | null>(null);
+
+/** The signed-in user (only inside <AuthGate>). */
+export function useMe(): Me {
+  const me = useContext(UserContext);
+  if (!me) throw new Error("useMe() outside <AuthGate>");
+  return me;
+}
+
+const field =
+  "mt-2 h-11 w-full rounded-lg border border-line bg-navy-950/70 px-3 text-sm text-ink outline-none transition-colors focus:border-teal/50";
 
 function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [signupOpen, setSignupOpen] = useState(false);
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.authConfig().then((c) => setSignupOpen(c.signup), () => setSignupOpen(false));
+  }, []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await api.login(password);
+      if (mode === "signin") await api.login(username, password);
+      else await api.signup(username, password);
       setPassword("");
       onSignedIn();
     } catch (e) {
@@ -24,33 +42,66 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
     }
   };
 
+  const signup = mode === "signup";
   return (
     <div className="grid min-h-screen place-items-center px-5">
       <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-line bg-navy-900/50 p-8">
         <Brand />
-        <h1 className="mt-8 font-display text-2xl font-semibold tracking-[-0.02em]">Sign in to the console</h1>
-        <p className="mt-2 text-sm text-muted">Enter the OwnCloud admin password.</p>
+        <h1 className="mt-8 font-display text-2xl font-semibold tracking-[-0.02em]">
+          {signup ? "Create your account" : "Sign in to the console"}
+        </h1>
+        <p className="mt-2 text-sm text-muted">
+          {signup ? "Your apps are private to your account." : "Use your OwnCloud username and password."}
+        </p>
         <label className="mt-6 block">
+          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">Username</span>
+          <input
+            autoComplete="username"
+            autoFocus
+            value={username}
+            maxLength={32}
+            spellCheck={false}
+            onChange={(e) => setUsername(e.target.value.toLowerCase())}
+            className={field}
+          />
+        </label>
+        <label className="mt-4 block">
           <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">Password</span>
           <input
             type="password"
-            autoComplete="current-password"
-            autoFocus
+            autoComplete={signup ? "new-password" : "current-password"}
             value={password}
             maxLength={256}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-2 h-11 w-full rounded-lg border border-line bg-navy-950/70 px-3 text-sm text-ink outline-none transition-colors focus:border-teal/50"
+            className={field}
           />
+          {signup && <span className="mt-1.5 block text-xs text-muted">At least 12 characters, not containing your username.</span>}
         </label>
-        {error && <p className="mt-3 text-xs text-danger" role="alert">{error}</p>}
+        {error && (
+          <p className="mt-3 text-xs text-danger" role="alert">
+            {error}
+          </p>
+        )}
         <button
           type="submit"
-          disabled={!password || busy}
+          disabled={!username || !password || busy}
           className="mt-6 h-11 w-full rounded-full bg-teal text-sm font-medium text-navy-950 transition-[background-color,opacity] duration-300 hover:bg-teal-soft disabled:opacity-40"
         >
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? "Please wait…" : signup ? "Create account" : "Sign in"}
         </button>
-        <a href="#top" className="mt-6 block text-center text-[13px] text-muted hover:text-ink">
+        {signupOpen && (
+          <button
+            type="button"
+            onClick={() => {
+              setMode(signup ? "signin" : "signup");
+              setError(null);
+            }}
+            className="mt-4 w-full text-center text-[13px] text-azure hover:underline"
+          >
+            {signup ? "I already have an account" : "Create an account"}
+          </button>
+        )}
+        <a href="#top" className={cx("block text-center text-[13px] text-muted hover:text-ink", signupOpen ? "mt-3" : "mt-6")}>
           ← Back to the website
         </a>
       </form>
@@ -58,23 +109,33 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   );
 }
 
-/** Renders its children only for an authenticated session; any 401 sends the user back here. */
+/** Renders its children only for a signed-in user; any 401 sends the user back here. */
 export function AuthGate({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<State>("checking");
+  const [me, setMe] = useState<Me | null>(null);
+  const [state, setState] = useState<"checking" | "signed-out" | "signed-in">("checking");
 
-  useEffect(() => {
+  const load = () =>
     api.me().then(
-      () => setState("signed-in"),
+      (user) => {
+        setMe(user);
+        setState("signed-in");
+      },
       (e) => setState(e instanceof AuthError ? "signed-out" : "signed-in"),
     );
-    const onUnauthorized = () => setState("signed-out");
+
+  useEffect(() => {
+    void load();
+    const onUnauthorized = () => {
+      setMe(null);
+      setState("signed-out");
+    };
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
 
-  if (state === "checking") return <div className="min-h-screen" />;
-  if (state === "signed-out") return <SignIn onSignedIn={() => setState("signed-in")} />;
-  return <>{children}</>;
+  if (state === "checking" || (state === "signed-in" && !me)) return <div className="min-h-screen" />;
+  if (state === "signed-out") return <SignIn onSignedIn={() => void load()} />;
+  return <UserContext.Provider value={me}>{children}</UserContext.Provider>;
 }
 
 export async function signOut() {

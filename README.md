@@ -8,20 +8,60 @@ echo "OWNCLOUD_ADMIN_PASSWORD=choose-a-long-password" > .env   # optional, 12+ c
 docker compose up -d --build
 ```
 
-Without `.env`, a password is generated on first start:
+The first account is **`admin`**, with that password. Without `.env`, its password is generated on first start:
 
 ```bash
 docker compose exec control-plane cat /data/admin-password.txt
 ```
+
+The password in `.env` is only used to create `admin`; change it later in **Settings**.
 
 | URL | What |
 | --- | --- |
 | http://localhost:8088 | Website |
 | http://localhost:8088/#/console | Console (sign in): deploy and manage apps |
 | http://localhost:8088/#/console/apps/&lt;id&gt;/editor | Code editor with security highlighting |
+| http://localhost:8088/#/console/settings | Password, access tokens, users (admins) |
 
 Only port 8088 is published. The control plane and QuantumTrace are internal to Compose.
-Hosted apps are published on random ports on `127.0.0.1`; the console links to each one.
+Hosted apps are published on random ports on `127.0.0.1` (a different site from the console on `localhost`);
+the console links to each one.
+
+## Accounts
+
+- **Sign-up** is open by default: anyone who can reach the console can create an account (set
+  `OWNCLOUD_ALLOW_SIGNUP=false` in `.env` to let only admins create accounts). New accounts are regular users.
+- **Users** see and manage only their own apps (at most 10 each, `OWNCLOUD_MAX_APPS_PER_USER`).
+  **Admins** see every app with its owner and manage accounts under **Settings → Users**: create, promote,
+  disable (signs the user out and stops their apps) or delete (removes their apps).
+- **Access tokens** (Settings → Access tokens) let tools such as the VS Code extension use an account.
+- From the host, accounts can also be managed with the admin CLI:
+
+```bash
+docker compose exec control-plane python -m app.cli list
+docker compose exec control-plane python -m app.cli create <username> [--admin]   # prints a generated password
+docker compose exec control-plane python -m app.cli reset-password <username>
+```
+
+## VS Code extension
+
+`vscode-extension/` contains **OwnCloud Security**, which brings the web editor's analysis into VS Code:
+the same yellow/orange/red/black line colours, Problems-panel entries, hover explanations with suggestions,
+quick fixes (`Ctrl+.`), live re-analysis while typing, *Analyse workspace*, and an **OwnCloud** sidebar listing
+your apps (download an app's source, edit it, *Push changes and redeploy*).
+
+```bash
+code --install-extension vscode-extension/owncloud-security.vsix
+```
+
+Then: console → **Settings → Access tokens → Create**, and in VS Code run **OwnCloud: Sign in** with
+`http://localhost:8088` and the token. Build and test it yourself:
+
+```bash
+cd vscode-extension && npm install && npm run compile && npm run package
+npm run test:unit                                   # plus API tests with OWNCLOUD_URL + OWNCLOUD_TEST_TOKEN
+VSCODE_CLI=/snap/bin/code npm run test:vscode       # runs inside a real VS Code with an isolated profile
+```
 
 ## Code editor
 
@@ -46,18 +86,42 @@ Try it with `examples/apps/vulnerable-shop`, which contains issues at every seve
 ## How a deployment works
 
 ```
-upload (folder / files / .zip)
+upload / edit / push
   → migration analysis    AWS origin, environment variables, AWS services, hard-coded keys
   → detect runtime        Dockerfile · Lambda · Procfile · package.json · application.py · main.py/app.py · index.html
-  → QuantumTrace scan     .py / .java / .go files → findings, tiers, exposure score
-  → quantum gate          if enabled: block on any critical (quantum-vulnerable) finding
-  → docker build          generated Dockerfile unless the app has its own
-  → docker run            256 MB, 0.5 CPU, no-new-privileges, restart on failure
+  → QuantumTrace scan     .py / .java / .go files → findings, tiers, exposure score (optional gate)
+  → snapshot vN           the exact source of this version, kept for diffs and rollbacks
+  → docker build          dependencies cached separately from code
+  → smart CI              only the tests affected by what changed since the running version
+  → readiness             the new version gets traffic only once it answers HTTP
+  → canary              5% of traffic for 45 s, compared statistically with the current version
+  → promote to 100%  —or—  automatic rollback + root-cause report
 ```
 
-Apps must listen on the port in `$PORT` (8080 for Python/Node). Every step is written to a shared
-event feed (`GET /api/events`) with `module`, `severity`, `title` and `detail`, so the other AI modules
-(anomaly detection, event-aware scaling, …) can read from and write to the same timeline.
+Every app runs behind its own **router** (`owncloud-app-<id>`, the public address, which never changes between
+versions) on a **private network** with its versions (`…-v<N>`) and optional database; apps cannot reach each other
+or the control plane, which talks to routers only through the Docker API. Apps must listen on `$PORT`
+(8080 for Python/Node). Every step is written to the shared event feed (`GET /api/events`).
+
+## AI features
+
+Each app in the console has tabs for these. Try them with `examples/apps/smart-shop`.
+
+| Feature | How it works |
+| --- | --- |
+| **Smart CI/CD** (Deployments tab) | Each version's source is snapshotted; files are compared with the running version; a dependency graph (Python imports via AST, JS/TS `import`/`require`) selects only the tests that depend on what changed, plus last run's failures. Dependency or Dockerfile changes run everything; docs-only changes run nothing. The pipeline reports *ran 1 of 3 test files, ~12 s saved*. |
+| **Self-healing canary** (Deployments) | The new version receives `OWNCLOUD_CANARY_PERCENT` (5%) of real traffic for `OWNCLOUD_CANARY_SECONDS` (45 s), plus health probes on the pages visitors use most. Error rate (two-proportion z-test), p95 latency and crashes are compared with the stable version; anomalies roll back automatically, otherwise the canary is promoted. Manual rollback is one click. |
+| **Root-cause analysis** (Incidents tab) | On a rollback, failed tests, a crash or an error spike in production (checked every 10 s), metrics, logs and the code diff are correlated: *"Errors on the canary (v3) started 20 s ago because of the change made in this version at line 14 of catalog.py: ZeroDivisionError — a division by zero."* — with the fix hint, the code at fault and the change to revert. |
+| **Autonomous database tuning** (Database tab) | One click adds a private PostgreSQL 16 (`DATABASE_URL`). Every 30 s the optimiser reads `pg_stat_statements`, explains slow queries (`EXPLAIN (GENERIC_PLAN)`), creates indexes for filtered sequential scans on large tables, keeps them only if the planner uses them and the cost falls, drops its own unused indexes, and suggests rewrites (`OFFSET` → keyset, `NOT IN` → `NOT EXISTS`, `SELECT *`, leading `%`…). |
+| **Predictive edge cache** (Traffic & edge tab) | The router keeps a cache per region (Lisbon, Madrid, Paris, Frankfurt…, from the visitor's language or an `X-OwnCloud-Region` header — logical edge locations, all served by one router on this machine). It learns a Markov model of navigation per region and prefetches the pages visitors are likely to open next, and re-warms popular pages before they expire. Only anonymous GET responses that are cacheable (`Cache-Control: public/max-age`, or static assets) are stored; requests with cookies or authorization always go to the app. |
+| **Generated load tests** (Load test tab) | From the real traffic: entry pages, page-to-page probabilities, think time and peak rate. Virtual users replay that behaviour in growing stages (up to 200) against the router until p95 > 1 s or errors > 1%, giving the capacity in req/s. The scenario downloads as a **k6** script. Only GET requests are replayed; sensitive query values (token, key, email…) are never recorded. |
+
+```bash
+control-plane/.venv/bin/python scripts/test-ai-features.py   # end-to-end check of all six (several minutes)
+```
+
+Apps deployed before routers existed keep their old container until their next **Redeploy**, which moves them to
+the router architecture (and gives them all of the above).
 
 ## Migrating from AWS
 
@@ -85,8 +149,18 @@ Samples in `examples/aws/`: `lambda-orders-sam` (SAM, Python, DynamoDB + S3), `b
 
 The console can run arbitrary code on this machine, so it is locked down:
 
-- **Authentication:** one admin account (scrypt-hashed password), server-side sessions in an `HttpOnly`, `SameSite=Strict`
-  cookie, sign-out revokes the session. Every API route except sign-in and a minimal health check needs a session.
+- **Authentication:** user accounts with scrypt-hashed passwords (12+ characters, not containing the username, not a
+  common password), server-side sessions in an `HttpOnly`, `SameSite=Strict` cookie, a new session on every sign-in
+  (no fixation). Every API route except sign-in, sign-up and a minimal health check needs a session or a token.
+- **Authorisation:** every app route checks ownership; another user's app is indistinguishable from a missing one
+  (404). Admin routes need an admin *browser session*. Request bodies reject unknown fields (no mass assignment of
+  `role`). Admins cannot demote, disable or delete themselves.
+- **Access tokens:** `oc_` + 256 random bits, stored as SHA-256, shown once, expiring (≤ 1 year), revocable. A token
+  only reaches an allow-list of code/analysis routes ("read" or "write" scope) and can never manage the account,
+  tokens or users. Disabling a user or changing a password ends their sessions.
+- **Enumeration:** wrong password and unknown user return the same answer in the same time (a dummy hash is computed).
+- **Cookie tossing:** hosted apps are linked on `127.0.0.1` while the console only answers on `localhost`
+  (`127.0.0.1:8088` redirects), so apps are a different site; requests carrying two session cookies are refused.
 - **Brute force:** sign-in is rate-limited in nginx (10/min) and in the API (5 failures per client, 30 overall, per 5 minutes).
 - **CSRF:** state-changing requests need the `X-OwnCloud-CSRF` header (it forces a CORS preflight, which is never granted)
   and an allow-listed `Origin`. This also stops hosted apps on other `localhost` ports, which browsers treat as the same site.
@@ -109,21 +183,30 @@ The console can run arbitrary code on this machine, so it is locked down:
 control-plane/.venv/bin/python -m pytest security-tests -q
 ```
 
-83 attacks against the running stack: unauthenticated access, forged cookies, session replay after sign-out, CSRF
+151 attacks against the running stack (`test_attacks.py`, `test_users.py`), using temporary accounts it creates and
+removes: cross-user access to every app route, privilege escalation, role mass assignment, token scope and
+cross-user abuse, revoked/expired/forged tokens, disabled accounts, password changes, username enumeration (answers
+and timing), cookie tossing, session fixation, unauthenticated access, forged cookies, session replay after sign-out, CSRF
 from other origins and from hosted apps, DNS rebinding, open redirects, SQL / command / Dockerfile / environment
 injection, path traversal (encoded, absolute, Windows, NUL byte), zip slip, zip bombs, oversized bodies, YAML bombs,
 analyzer DoS, secret disclosure, security headers, dotfiles, exposed internal ports, hosted-app network isolation and
 sign-in brute force. The last test locks this machine out of *new* sign-ins for 5 minutes (restart the control plane to reset).
 
-Known limits: the control plane has full access to Docker through its socket, hosted apps are served over plain HTTP
-on localhost, and hosted apps can still reach the internet and services on the host bound to `0.0.0.0`.
+Known limits: the control plane has full access to Docker through its socket, so every user can run code on this
+machine inside resource-limited containers (that is what a cloud does — keep sign-up off unless you trust who can
+reach the console); hosted apps are served over plain HTTP; they can still reach the internet and services on the host
+bound to `0.0.0.0`; and for a public deployment, serve the console and the apps on separate domains with HTTPS.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
 | `control-plane/` | FastAPI + Docker SDK. `app/main.py` (API and pipeline), `security.py` (auth, CSRF, headers), `code_review.py` (security analyzer), `runtime.py` (build/run), `quantum.py` (QuantumTrace client), `migration.py` + `aws_sources.py` (AWS migration), `store.py` (SQLite) |
+| `control-plane/app/router/` | Per-app router (traffic split, metrics, edge cache, prefetch) and the load generator |
+| `control-plane/app/{pipeline,canary,rca,database,loadtest}.py` | Smart CI, canary analysis, root-cause analysis, database tuning, load tests |
+| `scripts/` | End-to-end checks: `test-ai-features.py`, `test-vscode.py` |
 | `security-tests/` | Attack suite run against the live stack |
+| `vscode-extension/` | OwnCloud Security extension for VS Code |
 | `JunctionX/` | QuantumTrace scanner (teammate's code), run as its own service |
 | `frontend/` | Website and console (Vite, React, TypeScript, Tailwind) |
 | `examples/apps/` | Sample apps: `legacy-payments` (RSA, gets blocked by the gate), `secure-notes` (AES-256), `hello-node`, `landing-static` |
@@ -144,10 +227,23 @@ on localhost, and hosted apps can still reach the internet and services on the h
 | `GET` | `/api/apps/{id}/analysis` | Security + QuantumTrace findings for every file |
 | `POST` | `/api/apps/{id}/analysis/file` | Findings for an unsaved buffer: `{"path", "content"}` |
 | `POST` | `/api/auth/login` · `/logout`, `GET /api/auth/me` | Session (all other routes need it) |
+| `POST` | `/api/auth/signup`, `GET /api/auth/config` | Self-service account (when enabled) |
+| `POST` | `/api/auth/password` | Change password: `{"current_password", "new_password"}` |
+| `GET` `POST` `DELETE` | `/api/tokens` | Personal access tokens (browser session only) |
+| `GET` `POST` `PATCH` `DELETE` | `/api/users` | Accounts (admins, browser session only) |
+| `POST` | `/api/analysis/file` | Findings for any file `{"path", "content"}` (used by the VS Code extension) |
+| `GET` | `/api/apps/{id}/archive` | Every text file of an app in one response |
+| `GET` | `/api/apps/{id}/deployments` · `POST …/rollback` | Pipeline + canary history; roll back one version |
+| `GET` | `/api/apps/{id}/traffic` | Per-version requests/errors/latency, edge cache per region, learned navigation |
+| `GET` | `/api/apps/{id}/incidents` | Root-cause reports |
+| `GET` `POST` | `/api/apps/{id}/database` · `POST …/database/optimize` | Managed PostgreSQL and its optimiser |
+| `GET` | `/api/apps/{id}/loadtest/model` · `…/loadtest/k6` | Learned traffic model; k6 script |
+| `GET` `POST` | `/api/apps/{id}/loadtests` | Run and list generated load tests (`{"max_users"}`) |
 | `GET` | `/api/system` | Docker and QuantumTrace reachability |
 | `GET` | `/api/health` | `{"status": "ok"}` only |
 
-All requests except `GET` need the header `X-OwnCloud-CSRF: 1`.
+Browser requests other than `GET` need the header `X-OwnCloud-CSRF: 1`. Tools authenticate with
+`Authorization: Bearer oc_…` instead (no CSRF header needed).
 
 ## Developing without Compose
 

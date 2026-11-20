@@ -1,7 +1,8 @@
 name: owncloud
 
-# Set OWNCLOUD_ADMIN_PASSWORD (12+ characters) in a .env file next to this one, or a password is generated
-# on first start: docker compose exec control-plane cat /data/admin-password.txt
+# Set OWNCLOUD_ADMIN_PASSWORD (12+ characters) in a .env file next to this one, or the password of the first
+# account ("admin") is generated on first start: docker compose exec control-plane cat /data/admin-password.txt
+# OWNCLOUD_ALLOW_SIGNUP=false turns off self-service sign-up (admins then create accounts).
 
 services:
   # QuantumTrace: post-quantum cryptography analysis. Internal only: not published on the host.
@@ -21,7 +22,9 @@ services:
       - quantumtrace
     environment:
       QUANTUMTRACE_URL: http://quantumtrace:8000
-      OWNCLOUD_PUBLIC_HOST: localhost
+      # Hosted apps are linked on 127.0.0.1 so they are a different site from the console (localhost).
+      OWNCLOUD_PUBLIC_HOST: 127.0.0.1
+      OWNCLOUD_ALLOW_SIGNUP: ${OWNCLOUD_ALLOW_SIGNUP:-true}
       OWNCLOUD_BIND_HOST: 127.0.0.1
       OWNCLOUD_ADMIN_PASSWORD: ${OWNCLOUD_ADMIN_PASSWORD:-}
       OWNCLOUD_TRUST_PROXY: "true"

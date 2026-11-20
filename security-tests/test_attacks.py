@@ -1,8 +1,8 @@
-"""Attack suite against a running OwnCloud stack (docker compose up).
+"""Attack suite against a running OwnCloud stack (docker compose up): web attacks on the API and proxy.
 
 Run:  control-plane/.venv/bin/python -m pytest security-tests -q
-The admin password comes from OWNCLOUD_TEST_PASSWORD or the control-plane container.
-The brute-force test runs last: it locks this machine out of *new* sign-ins for 5 minutes.
+Fixtures (temporary accounts) are in conftest.py. The brute-force test runs last: it locks this machine
+out of *new* sign-ins for 5 minutes.
 """
 
 import io
@@ -15,54 +15,7 @@ import zipfile
 import httpx
 import pytest
 
-BASE = os.environ.get("OWNCLOUD_URL", "http://localhost:8088")
-ORIGIN = BASE
-CSRF = {"X-OwnCloud-CSRF": "1"}
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def _password() -> str:
-    if os.environ.get("OWNCLOUD_TEST_PASSWORD"):
-        return os.environ["OWNCLOUD_TEST_PASSWORD"]
-    return subprocess.run(
-        ["docker", "compose", "exec", "-T", "control-plane", "cat", "/data/admin-password.txt"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
-    ).stdout.strip()
-
-
-def _request(client: httpx.Client, method: str, url: str, **kwargs) -> httpx.Response:
-    """Retry nginx rate-limit responses so ordinary tests are not affected by bursts."""
-    for attempt in range(8):
-        response = client.request(method, url, **kwargs)
-        if response.status_code != 429:
-            return response
-        time.sleep(1 + attempt)
-    return response
-
-
-@pytest.fixture(scope="session")
-def anon():
-    with httpx.Client(base_url=BASE, timeout=30) as client:
-        yield client
-
-
-@pytest.fixture(scope="session")
-def admin():
-    client = httpx.Client(base_url=BASE, timeout=60, headers={**CSRF, "Origin": ORIGIN})
-    response = _request(client, "POST", "/api/auth/login", json={"password": _password()})
-    assert response.status_code == 200, response.text
-    yield client
-    client.close()
-
-
-@pytest.fixture(scope="session")
-def app_id(admin):
-    """A small static app to attack. Its contents include a stored XSS payload."""
-    files = [("files", ("site/index.html", b"<h1>target</h1><script>alert(1)</script>", "text/html"))]
-    response = _request(admin, "POST", "/api/apps", data={"name": "attack-target"}, files=files)
-    assert response.status_code == 201, response.text
-    yield response.json()["id"]
-    _request(admin, "DELETE", f"/api/apps/{response.json()['id']}")
+from conftest import BASE, CSRF, ROOT, request as _request
 
 
 def zip_bytes(entries: dict[str, bytes]) -> bytes:
@@ -81,6 +34,8 @@ PROTECTED = [
     ("GET", "/api/apps/0123456789/file?path=index.html"), ("GET", "/api/apps/0123456789/analysis"),
     ("POST", "/api/apps/0123456789/redeploy"), ("DELETE", "/api/apps/0123456789"),
     ("POST", "/api/migrations/analyze"), ("GET", "/api/docs"), ("GET", "/api/openapi.json"),
+    ("GET", "/api/tokens"), ("POST", "/api/tokens"), ("GET", "/api/users"), ("POST", "/api/users"),
+    ("PATCH", "/api/users/0123456789"), ("POST", "/api/auth/password"), ("POST", "/api/analysis/file"),
 ]
 
 
@@ -94,8 +49,8 @@ def test_health_reveals_nothing(anon):
     assert _request(anon, "GET", "/api/health").json() == {"status": "ok"}
 
 
-def test_wrong_password_is_rejected(anon):
-    response = _request(anon, "POST", "/api/auth/login", json={"password": "not-the-password"}, headers=CSRF)
+def test_wrong_password_is_rejected(anon, admin_account):
+    response = _request(anon, "POST", "/api/auth/login", json={"username": admin_account.username, "password": "not-the-password"}, headers=CSRF)
     assert response.status_code == 401
     assert "set-cookie" not in response.headers
 
@@ -106,16 +61,16 @@ def test_forged_session_cookies_are_rejected(anon, cookie):
     assert response.status_code in (400, 401, 431)
 
 
-def test_session_cookie_flags():
+def test_session_cookie_flags(admin_account):
     with httpx.Client(base_url=BASE, timeout=30, headers=CSRF) as client:
-        response = _request(client, "POST", "/api/auth/login", json={"password": _password()})
+        response = _request(client, "POST", "/api/auth/login", json={"username": admin_account.username, "password": admin_account.password})
         cookie = response.headers["set-cookie"].lower()
         assert "httponly" in cookie and "samesite=strict" in cookie and "path=/api" in cookie
 
 
-def test_logout_invalidates_the_session():
+def test_logout_invalidates_the_session(admin_account):
     with httpx.Client(base_url=BASE, timeout=30, headers=CSRF) as client:
-        _request(client, "POST", "/api/auth/login", json={"password": _password()})
+        _request(client, "POST", "/api/auth/login", json={"username": admin_account.username, "password": admin_account.password})
         token = client.cookies.get("owncloud_session")
         assert _request(client, "GET", "/api/apps").status_code == 200
         _request(client, "POST", "/api/auth/logout")
@@ -128,7 +83,7 @@ def test_login_body_size_and_type_limits(anon):
     big = _request(anon, "POST", "/api/auth/login", content=b"{" + b" " * (3 * 1024 * 1024) + b"}",
                    headers={**CSRF, "Content-Type": "application/json"})
     assert big.status_code == 413
-    wrong_type = _request(anon, "POST", "/api/auth/login", json={"password": ["a", "b"]}, headers=CSRF)
+    wrong_type = _request(anon, "POST", "/api/auth/login", json={"username": "admin", "password": ["a", "b"]}, headers=CSRF)
     assert wrong_type.status_code == 422
 
 
@@ -380,38 +335,37 @@ for target in targets:
 """
 
 
-def test_hosted_apps_cannot_reach_the_control_plane_or_each_other(admin, app_id):
-    for _ in range(60):
-        if _request(admin, "GET", f"/api/apps/{app_id}").json()["status"] == "running":
-            break
-        time.sleep(2)
-    target_ip = subprocess.run(
-        ["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", f"owncloud-app-{app_id}"],
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
-    assert target_ip, "the target app must be running for this test to mean anything"
-    url = _request(admin, "GET", f"/api/apps/{app_id}").json()["url"]
-    assert httpx.get(url, timeout=5).status_code == 200  # reachable from the host, as intended
-    gateway = subprocess.run(
-        ["docker", "network", "inspect", "-f", "{{(index .IPAM.Config 0).Gateway}}", "owncloud-apps"],
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
+def test_hosted_apps_cannot_reach_the_control_plane_or_each_other(admin, app_id, alice_app, alice):
+    def running(client, app):
+        for _ in range(90):
+            record = _request(client, "GET", f"/api/apps/{app}").json()
+            if record["status"] == "running":
+                return record
+            time.sleep(2)
+        raise AssertionError(f"{app} did not start")
+
+    mine, theirs = running(admin, app_id), running(alice.client, alice_app)
+    assert httpx.get(mine["url"], timeout=5).status_code == 200  # reachable from the host, as intended
+
+    def ip(container, network):
+        return subprocess.run(["docker", "inspect", "-f", f"{{{{(index .NetworkSettings.Networks \"{network}\").IPAddress}}}}", container],
+                              capture_output=True, text=True, check=True).stdout.strip()
+
+    their_network = f"owncloud-net-{alice_app}"
+    their_router = ip(f"owncloud-app-{alice_app}", their_network)
+    their_version = ip(f"owncloud-app-{alice_app}-v{theirs['version']}", their_network)
+    assert their_router and their_version, "the other app must be running for this test to mean anything"
+    gateway = subprocess.run(["docker", "network", "inspect", "-f", "{{(index .IPAM.Config 0).Gateway}}", f"owncloud-net-{app_id}"],
+                             capture_output=True, text=True, check=True).stdout.strip()
     result = subprocess.run(
-        ["docker", "run", "--rm", "--network", "owncloud-apps", "python:3.12-slim", "python", "-c", PROBE,
-         "control-plane:8000", "quantumtrace:8000", "owncloud-control-plane-1:8000", f"{target_ip}:80",
+        ["docker", "run", "--rm", "--network", f"owncloud-net-{app_id}", "python:3.12-slim", "python", "-c", PROBE,
+         "control-plane:8000", "quantumtrace:8000", "owncloud-control-plane-1:8000", "web:80",
+         f"owncloud-app-{alice_app}:8080", f"{their_router}:8080", f"{their_version}:80",
          f"{gateway}:8088", f"{gateway}:8000"],
         capture_output=True, text=True, timeout=120,
     )
     assert "REACHABLE" not in result.stdout, result.stdout
-
-
-# ---------------------------------------------------------------- brute force (keep last)
-
-
-def test_zz_login_brute_force_is_throttled():
-    statuses = []
-    with httpx.Client(base_url=BASE, timeout=30, headers=CSRF) as client:
-        for i in range(12):
-            statuses.append(client.post("/api/auth/login", json={"password": f"guess-{i}"}).status_code)
-    assert 429 in statuses, statuses
-    assert statuses.count(401) <= 6, statuses
+    # Positive control: inside its own network the probe does reach this app's router.
+    own = subprocess.run(["docker", "run", "--rm", "--network", f"owncloud-net-{app_id}", "python:3.12-slim", "python", "-c", PROBE,
+                          f"owncloud-app-{app_id}:8080"], capture_output=True, text=True, timeout=60)
+    assert "REACHABLE" in own.stdout, own.stdout

@@ -14,6 +14,7 @@ import { Migration } from "./sections/Migration";
 import { Console } from "./console/Console";
 import { useHashRoute } from "./hooks/useHashRoute";
 import { AuthGate } from "./console/AuthGate";
+import { Settings } from "./console/Settings";
 
 const EditorPage = lazy(() => import("./editor/EditorPage"));
 
@@ -27,6 +28,8 @@ export function App() {
             <Suspense fallback={<div className="min-h-screen" />}>
               <EditorPage key={route.appId} appId={route.appId} />
             </Suspense>
+          ) : route.name === "settings" ? (
+            <Settings />
           ) : (
             <Console />
           )}

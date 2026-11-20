@@ -4,8 +4,13 @@ import { usePolling } from "../hooks/usePolling";
 import { cx } from "../components/ui";
 import { SeverityDot, TierPill, TIER_STYLE, timeAgo } from "./badges";
 import { MigrationReport } from "./MigrationReport";
+import { Database } from "./ai/Database";
+import { Deployments } from "./ai/Deployments";
+import { Incidents } from "./ai/Incidents";
+import { LoadTest } from "./ai/LoadTest";
+import { Traffic } from "./ai/Traffic";
 
-type Tab = "quantum" | "migration" | "logs" | "activity";
+type Tab = "deployments" | "traffic" | "incidents" | "database" | "loadtest" | "quantum" | "migration" | "logs" | "activity";
 
 function QuantumTab({ app }: { app: CloudApp }) {
   const summary = app.scan_summary;
@@ -117,8 +122,13 @@ function StatsLine({ app }: { app: CloudApp }) {
 
 export function AppDetail({ app }: { app: CloudApp }) {
   const migrated = app.migration?.platform.startsWith("AWS") ?? false;
-  const [tab, setTab] = useState<Tab>(migrated ? "migration" : "quantum");
+  const [tab, setTab] = useState<Tab>("deployments");
   const tabs: [Tab, string][] = [
+    ["deployments", "Deployments"],
+    ["traffic", "Traffic & edge"],
+    ["incidents", "Incidents"],
+    ["database", "Database"],
+    ["loadtest", "Load test"],
     ...(migrated ? [["migration", "Migration"] as [Tab, string]] : []),
     ["quantum", "Quantum analysis"],
     ["logs", "Logs"],
@@ -138,7 +148,7 @@ export function AppDetail({ app }: { app: CloudApp }) {
         </p>
       )}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div role="tablist" className="flex gap-1 rounded-full border border-line p-1">
+        <div role="tablist" className="flex flex-wrap gap-1 rounded-2xl border border-line p-1">
           {tabs.map(([id, label]) => (
             <button
               key={id}
@@ -157,6 +167,11 @@ export function AppDetail({ app }: { app: CloudApp }) {
         <StatsLine app={app} />
       </div>
       <div className="mt-5">
+        {tab === "deployments" && <Deployments app={app} />}
+        {tab === "traffic" && <Traffic app={app} />}
+        {tab === "incidents" && <Incidents app={app} />}
+        {tab === "database" && <Database app={app} />}
+        {tab === "loadtest" && <LoadTest app={app} />}
         {tab === "migration" && app.migration && <MigrationReport report={app.migration} />}
         {tab === "quantum" && <QuantumTab app={app} />}
         {tab === "logs" && <LogsTab app={app} />}

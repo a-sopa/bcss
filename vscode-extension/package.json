@@ -1,0 +1,137 @@
+{
+  "name": "owncloud-security",
+  "displayName": "OwnCloud Security",
+  "description": "OwnCloud's code security analysis in VS Code: colour-coded vulnerable lines, explanations, quick fixes, and your OwnCloud apps.",
+  "version": "0.1.1",
+  "publisher": "owncloud-hackathon",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "security",
+    "vulnerabilities",
+    "sast",
+    "post-quantum",
+    "owncloud"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Code is analysed in any workspace; pushing code to OwnCloud (which deploys it) needs a trusted workspace.",
+      "restrictedConfigurations": [
+        "owncloud.serverUrl"
+      ]
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      { "command": "owncloud.signIn", "title": "Sign in", "category": "OwnCloud", "icon": "$(sign-in)" },
+      { "command": "owncloud.signOut", "title": "Sign out", "category": "OwnCloud" },
+      { "command": "owncloud.analyzeFile", "title": "Analyse current file", "category": "OwnCloud" },
+      { "command": "owncloud.analyzeWorkspace", "title": "Analyse workspace", "category": "OwnCloud", "icon": "$(shield)" },
+      { "command": "owncloud.clearFindings", "title": "Clear findings", "category": "OwnCloud" },
+      { "command": "owncloud.openConsole", "title": "Open console in browser", "category": "OwnCloud", "icon": "$(link-external)" },
+      { "command": "owncloud.refreshApps", "title": "Refresh apps", "category": "OwnCloud", "icon": "$(refresh)" },
+      { "command": "owncloud.pullApp", "title": "Download app source", "category": "OwnCloud", "icon": "$(cloud-download)" },
+      { "command": "owncloud.pushApp", "title": "Push changes and redeploy", "category": "OwnCloud", "icon": "$(cloud-upload)", "enablement": "isWorkspaceTrusted" },
+      { "command": "owncloud.redeployApp", "title": "Redeploy", "category": "OwnCloud", "icon": "$(debug-restart)" },
+      { "command": "owncloud.openAppInConsole", "title": "Open in OwnCloud editor", "category": "OwnCloud", "icon": "$(code)" },
+      { "command": "owncloud.openApp", "title": "Open running app", "category": "OwnCloud", "icon": "$(globe)" }
+    ],
+    "configuration": {
+      "title": "OwnCloud",
+      "properties": {
+        "owncloud.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8088",
+          "description": "Address of your OwnCloud console. Use https:// for anything other than this machine."
+        },
+        "owncloud.analyzeOnType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Re-analyse files while you type (otherwise on open and save)."
+        },
+        "owncloud.analyzeDelay": {
+          "type": "number",
+          "default": 800,
+          "minimum": 200,
+          "description": "Milliseconds to wait after typing before re-analysing."
+        },
+        "owncloud.lineHighlights": {
+          "type": "boolean",
+          "default": true,
+          "description": "Colour vulnerable lines yellow (low), orange (medium), red (high) or black (critical)."
+        },
+        "owncloud.maxWorkspaceFiles": {
+          "type": "number",
+          "default": 500,
+          "minimum": 1,
+          "maximum": 2000,
+          "description": "Maximum number of files analysed by 'Analyse workspace'."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "owncloud", "title": "OwnCloud", "icon": "media/owncloud.svg" }
+      ]
+    },
+    "views": {
+      "owncloud": [
+        { "id": "owncloud.apps", "name": "Apps" }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "owncloud.apps",
+        "contents": "Connect VS Code to your OwnCloud account to see vulnerabilities in your code and work with your apps.\n[Sign in](command:owncloud.signIn)\nCreate an access token in the OwnCloud console under Settings → Access tokens.",
+        "when": "!owncloud.signedIn"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "owncloud.refreshApps", "when": "view == owncloud.apps && owncloud.signedIn", "group": "navigation@1" },
+        { "command": "owncloud.analyzeWorkspace", "when": "view == owncloud.apps && owncloud.signedIn", "group": "navigation@2" },
+        { "command": "owncloud.openConsole", "when": "view == owncloud.apps", "group": "navigation@3" }
+      ],
+      "view/item/context": [
+        { "command": "owncloud.pullApp", "when": "view == owncloud.apps && viewItem =~ /^app/", "group": "inline@1" },
+        { "command": "owncloud.openAppInConsole", "when": "view == owncloud.apps && viewItem =~ /^app/", "group": "inline@2" },
+        { "command": "owncloud.openApp", "when": "view == owncloud.apps && viewItem == app-running", "group": "1_open" },
+        { "command": "owncloud.redeployApp", "when": "view == owncloud.apps && viewItem =~ /^app/", "group": "2_manage" }
+      ],
+      "commandPalette": [
+        { "command": "owncloud.redeployApp", "when": "false" },
+        { "command": "owncloud.openAppInConsole", "when": "false" },
+        { "command": "owncloud.openApp", "when": "false" },
+        { "command": "owncloud.pullApp", "when": "owncloud.signedIn" },
+        { "command": "owncloud.pushApp", "when": "owncloud.signedIn" },
+        { "command": "owncloud.signOut", "when": "owncloud.signedIn" }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "test:unit": "node --test out/test/unit.test.js",
+    "test:vscode": "node out/test/runVsCode.js",
+    "package": "vsce package --no-dependencies --skip-license --allow-missing-repository -o owncloud-security.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "~1.90.0",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "~5.8.3"
+  }
+}

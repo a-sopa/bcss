@@ -1,7 +1,7 @@
 import type { AppStatus, CloudEvent, ScanSummary, Tier } from "../lib/api";
 import { cx } from "../components/ui";
 
-const BUSY: AppStatus[] = ["queued", "scanning", "building", "starting", "restarting"];
+const BUSY: AppStatus[] = ["queued", "scanning", "building", "testing", "canary", "starting", "restarting"];
 
 const STATUS_STYLE: Record<AppStatus, string> = {
   running: "text-teal border-teal/30 bg-teal/10",
@@ -9,6 +9,8 @@ const STATUS_STYLE: Record<AppStatus, string> = {
   scanning: "text-azure border-azure/30 bg-azure/10",
   building: "text-azure border-azure/30 bg-azure/10",
   starting: "text-azure border-azure/30 bg-azure/10",
+  testing: "text-azure border-azure/30 bg-azure/10",
+  canary: "text-warn border-warn/30 bg-warn/10",
   restarting: "text-warn border-warn/30 bg-warn/10",
   stopped: "text-muted border-line bg-white/[0.03]",
   missing: "text-muted border-line bg-white/[0.03]",
