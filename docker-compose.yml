@@ -1,3 +1,9 @@
+name: owncloud
+
+# Set OWNCLOUD_ADMIN_PASSWORD (12+ characters) in a .env file next to this one, or the password of the first
+# account ("admin") is generated on first start: docker compose exec control-plane cat /data/admin-password.txt
+# OWNCLOUD_ALLOW_SIGNUP=false turns off self-service sign-up (admins then create accounts).
+
 services:
   # ==============================================================================
   # 1. In-Memory Distributed Cache (Redis)
@@ -80,8 +86,56 @@ services:
       - frontend
       - full
 
+  # ==============================================================================
+  # 5. OwnCloud: QuantumTrace, control plane and website/console (:8088)
+  # ==============================================================================
+  # QuantumTrace: post-quantum cryptography analysis. Internal only: not published on the host.
+  quantumtrace:
+    build: ./JunctionX
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  # Control plane: upload → analysis → build → run, as Docker containers on this host.
+  control-plane:
+    build: ./control-plane
+    restart: unless-stopped
+    depends_on:
+      - quantumtrace
+    environment:
+      QUANTUMTRACE_URL: http://quantumtrace:8000
+      # Hosted apps are linked on 127.0.0.1 so they are a different site from the console (localhost).
+      OWNCLOUD_PUBLIC_HOST: 127.0.0.1
+      OWNCLOUD_ALLOW_SIGNUP: ${OWNCLOUD_ALLOW_SIGNUP:-true}
+      OWNCLOUD_BIND_HOST: 127.0.0.1
+      OWNCLOUD_ADMIN_PASSWORD: ${OWNCLOUD_ADMIN_PASSWORD:-}
+      OWNCLOUD_TRUST_PROXY: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - owncloud-data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Not published on the host: reachable only through the web proxy.
+
+  # Website and console, with /api proxied to the control plane.
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - control-plane
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "127.0.0.1:8088:80"
+
 volumes:
   redis_data:
+  owncloud-data:
 
 networks:
   hackathon-network:
