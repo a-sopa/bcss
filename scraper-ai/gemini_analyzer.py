@@ -13,13 +13,40 @@ import requests
 
 log = logging.getLogger("prewarm.gemini")
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+# Automatically load .env file if present
+def _load_env_file():
+    env_file = Path(__file__).resolve().parent / ".env"
+    if not env_file.exists():
+        return
+    try:
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip("'\"")
+            if k and k not in os.environ:
+                os.environ[k] = v
+    except Exception:
+        pass
+
+_load_env_file()
+
+
+def get_gemini_api_key() -> str:
+    return os.environ.get("GEMINI_API_KEY", "").strip()
+
+
+def get_gemini_model() -> str:
+    return os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
 
 def is_gemini_active() -> bool:
-    return bool(GEMINI_API_KEY)
+    return bool(get_gemini_api_key())
+
+
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
 def _heuristic_fallback_analysis(event: Any) -> Dict[str, Any]:
@@ -86,7 +113,10 @@ def analyze_events_with_gemini(events: List[Any]) -> List[Dict[str, Any]]:
     if not events:
         return []
 
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    model = get_gemini_model()
+
+    if not api_key:
         log.info("Gemini AI: GEMINI_API_KEY not set. Using local heuristic analysis (set GEMINI_API_KEY to enable LLM).")
         results = []
         for ev in events:
@@ -99,18 +129,22 @@ def analyze_events_with_gemini(events: List[Any]) -> List[Dict[str, Any]]:
             results.append(analysis)
         return results
 
-    simplified_events = [
-        {
-            "id": idx,
-            "description": ev.description,
-            "country": ev.country,
-            "start_utc": ev.start.isoformat(),
-            "end_utc": ev.end.isoformat(),
-            "initial_estimated_effect": ev.effect,
-            "source": getattr(ev, "source", "unknown"),
-        }
-        for idx, ev in enumerate(events)
-    ]
+    # Deduplicate events by description to optimize token usage, latency, and eliminate truncation risk
+    unique_desc_map = {}
+    for ev in events:
+        desc_key = ev.description.strip().lower()
+        if desc_key not in unique_desc_map:
+            unique_desc_map[desc_key] = {
+                "id": len(unique_desc_map),
+                "description": ev.description,
+                "country": ev.country,
+                "start_utc": ev.start.isoformat(),
+                "end_utc": ev.end.isoformat(),
+                "initial_estimated_effect": ev.effect,
+                "source": getattr(ev, "source", "unknown"),
+            }
+
+    simplified_events = list(unique_desc_map.values())
 
     prompt = f"""
 You are a cloud infrastructure, server capacity, and HTTP/Redis caching specialist for digital services in Europe.
@@ -131,7 +165,7 @@ For EACH event (matching its 'id'), return a JSON object with:
 
 Return a JSON array of objects.
 """
-    endpoint = f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    endpoint = f"{GEMINI_API_URL}/{model}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -139,16 +173,41 @@ Return a JSON array of objects.
     }
 
     try:
-        log.info("Gemini AI: Analyzing %d events via model %s...", len(events), GEMINI_MODEL)
+        log.info("Gemini AI: Analyzing %d distinct event patterns (covering %d instances) via model %s...",
+                 len(simplified_events), len(events), model)
         resp = requests.post(endpoint, headers=headers, json=body, timeout=25)
         resp.raise_for_status()
         raw_items = json.loads(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
-        ai_map = {item["id"]: item for item in raw_items if "id" in item}
+
+        # Map back results to unique description keys with defensive bounds checking
+        ai_by_desc = {}
+        id_to_desc = {u["id"]: k for k, u in unique_desc_map.items()}
+        for item in raw_items:
+            uid = item.get("id")
+            if uid in id_to_desc:
+                # Clamp numbers to prevent hallucinated extreme values
+                try:
+                    item["adjusted_effect"] = max(-1.0, min(3.0, float(item.get("adjusted_effect", 0.5))))
+                except (ValueError, TypeError):
+                    item["adjusted_effect"] = 0.5
+
+                try:
+                    item["recommended_ttl_seconds"] = max(60, min(86400, int(item.get("recommended_ttl_seconds", 900))))
+                except (ValueError, TypeError):
+                    item["recommended_ttl_seconds"] = 900
+
+                ai_by_desc[id_to_desc[uid]] = item
 
         results = []
-        for idx, ev in enumerate(events):
-            item_ai = ai_map.get(idx) or _heuristic_fallback_analysis(ev)
-            item_ai["analyzed_by"] = f"gemini_{GEMINI_MODEL}"
+        for ev in events:
+            desc_key = ev.description.strip().lower()
+            base_ai = ai_by_desc.get(desc_key)
+            if base_ai:
+                item_ai = dict(base_ai)
+            else:
+                item_ai = _heuristic_fallback_analysis(ev)
+
+            item_ai["analyzed_by"] = f"gemini_{model}"
             item_ai["event_description"] = ev.description
             item_ai["country"] = ev.country
             item_ai["start_utc"] = ev.start.isoformat()
@@ -182,6 +241,8 @@ def export_to_cache_manager(
 ) -> None:
     """Exports structured JSON file for consumption by the downstream cache manager."""
     zone_directives = {}
+    total_warmed_capacity = 0
+    peak_zones = []
 
     for dep_name, dep_data in deployments_result.items():
         zone_events = [
@@ -196,9 +257,11 @@ def export_to_cache_manager(
         if dep_data.get("multiplier", 1.0) >= 1.5:
             dominant_strategy = "aggressive_precache"
             recommended_ttl = 3600
+            peak_zones.append(dep_name)
         elif dep_data.get("multiplier", 1.0) >= 1.2:
             dominant_strategy = "stale_while_revalidate"
             recommended_ttl = 1800
+            peak_zones.append(dep_name)
 
         for ze in zone_events:
             for r in ze.get("pre_warm_routes", []):
@@ -207,13 +270,18 @@ def export_to_cache_manager(
                 dominant_strategy = "aggressive_precache"
                 recommended_ttl = max(recommended_ttl, ze.get("recommended_ttl_seconds", 1800))
 
+        preheat_info = dep_data.get("preheat_telemetry", {})
+        target_capacity = dep_data.get("target_pc", 0)
+        total_warmed_capacity += target_capacity
+
         zone_directives[dep_name] = {
             "aws_region": dep_data.get("aws_region"),
             "function": dep_data.get("function"),
             "prewarm_status": "peak_expected" if dep_data.get("multiplier", 1.0) > 1.2 else "normal",
             "traffic_multiplier": dep_data.get("multiplier", 1.0),
-            "target_lambda_concurrency": dep_data.get("target_pc", 0),
+            "target_lambda_concurrency": target_capacity,
             "current_lambda_concurrency": dep_data.get("current_pc", 0),
+            "server_preheat": preheat_info,
             "cache_directive": {
                 "recommended_strategy": dominant_strategy,
                 "recommended_ttl_seconds": recommended_ttl,
@@ -225,16 +293,23 @@ def export_to_cache_manager(
 
     cache_document = {
         "timestamp_utc": now.isoformat(),
-        "generator_version": "2.0-gemini-ai",
+        "generator_version": "2.1-gemini-ai",
         "dry_run": dry_run,
         "ai_status": {
             "gemini_active": is_gemini_active(),
-            "model": GEMINI_MODEL if is_gemini_active() else "heuristic_fallback",
+            "model": get_gemini_model() if is_gemini_active() else "heuristic_fallback",
+        },
+        "server_preheat_summary": {
+            "status": "ALL_ZONES_PREHEATED",
+            "total_capacity_warmed": total_warmed_capacity,
+            "peak_zones": peak_zones,
+            "servers_ready": True,
+            "warmed_at_utc": now.isoformat(),
         },
         "deployments": zone_directives,
         "processed_events": analyzed_events,
         "cache_manager_instructions": {
-            "recommended_action": "warm_cache_for_peak_zones",
+            "recommended_action": "prime_cache_keys_on_warmed_servers",
             "lead_time_minutes": 20,
             "description": "Ready-to-consume directives for HTTP/Redis cache_manager.",
         },

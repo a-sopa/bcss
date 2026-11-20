@@ -36,6 +36,26 @@ SCRAPER_DIR = Path(__file__).resolve().parent
 if str(SCRAPER_DIR) not in sys.path:
     sys.path.insert(0, str(SCRAPER_DIR))
 
+# Automatically load .env file if present
+def _load_env_file():
+    env_file = SCRAPER_DIR / ".env"
+    if not env_file.exists():
+        return
+    try:
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip("'\"")
+            if k and k not in os.environ:
+                os.environ[k] = v
+    except Exception:
+        pass
+
+_load_env_file()
+
 import requests
 
 try:
@@ -51,12 +71,13 @@ try:
 except ImportError:
     holidays = None
 
-# Gemini AI integration
+# Gemini AI and Preheat Engine integration
 from gemini_analyzer import (
     analyze_events_with_gemini,
     export_to_cache_manager,
     is_gemini_active,
 )
+from preheat_engine import ServerPreheatEngine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("prewarm")
@@ -447,11 +468,13 @@ def collect_ticketmaster_events(now):
 # Source: Manual Events (supports both English and Portuguese schema keys)
 # ----------------------------------------------------------------------------
 def collect_manual_events(now):
+    base = Path(__file__).resolve().parent
     env_path = os.environ.get("MANUAL_EVENTS") or os.environ.get("EVENTOS_MANUAIS")
     if env_path:
         f = Path(env_path)
+        if not f.exists() and not f.is_absolute():
+            f = base / env_path
     else:
-        base = Path(__file__).resolve().parent
         f = base / "ManualEvents.json"
         if not f.exists():
             f = base / "manual_events.json"
@@ -668,6 +691,7 @@ def main():
                      e.start.strftime("%d/%m %H:%M"), e.end.strftime("%H:%M UTC"),
                      e.description, e.source)
 
+    preheat_engine = ServerPreheatEngine(dry_run=DRY_RUN, boto3_module=boto3)
     deployments_result = {}
     for name, dep in DEPLOYMENTS.items():
         try:
@@ -680,9 +704,13 @@ def main():
             multiplier = calculate_traffic_multiplier(name, events, now)
             baseline = expected_baseline(name, profile, now)
 
-            lam = boto3.client("lambda", region_name=dep["aws_region"]) if boto3 is not None else None
-            current = get_current_concurrency(lam, dep)
-            apply_concurrency_update(name, dep, target)
+            # Active Server Pre-heating (capacity scaling + synthetic warm-up probes)
+            preheat_telemetry = preheat_engine.preheat_zone(
+                zone_name=name,
+                dep_config=dep,
+                target_capacity=target,
+                multiplier=multiplier,
+            )
 
             covered_countries = [iso for iso, (z, _, _, _) in COUNTRIES.items() if ZONE_DEPLOYMENT.get(z) == name]
             deployments_result[name] = {
@@ -691,17 +719,23 @@ def main():
                 "multiplier": round(multiplier, 2),
                 "baseline_expected": round(baseline, 2),
                 "target_pc": target,
-                "current_pc": current,
+                "current_pc": preheat_telemetry.get("previous_instances", 5),
                 "covered_countries": covered_countries,
+                "preheat_telemetry": preheat_telemetry,
             }
         except Exception as e:
             log.error("[%s] Processing failed (%s): retaining current state", name, e)
 
     # 4. Export consolidated directives for downstream Cache Manager
-    cache_output_path = Path(os.environ.get(
-        "CACHE_MANAGER_OUTPUT",
-        Path(__file__).resolve().parent / "cache_manager_feed.json"
-    ))
+    base_dir = Path(__file__).resolve().parent
+    env_cache_output = os.environ.get("CACHE_MANAGER_OUTPUT")
+    if env_cache_output:
+        cache_output_path = Path(env_cache_output)
+        if not cache_output_path.is_absolute() and len(cache_output_path.parts) == 1:
+            cache_output_path = base_dir / env_cache_output
+    else:
+        cache_output_path = base_dir / "cache_manager_feed.json"
+
     export_to_cache_manager(
         output_path=cache_output_path,
         now=now,
