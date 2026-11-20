@@ -36,6 +36,11 @@ SCRAPER_DIR = Path(__file__).resolve().parent
 if str(SCRAPER_DIR) not in sys.path:
     sys.path.insert(0, str(SCRAPER_DIR))
 
+# Add server-preheat (standalone module at project root) to sys.path
+SERVER_PREHEAT_DIR = SCRAPER_DIR.parent / "server-preheat"
+if str(SERVER_PREHEAT_DIR) not in sys.path:
+    sys.path.insert(0, str(SERVER_PREHEAT_DIR))
+
 # Automatically load .env file if present
 def _load_env_file():
     env_file = SCRAPER_DIR / ".env"
