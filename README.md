@@ -1,4 +1,4 @@
-# 🛡️ Babuja Cloud Security Systems (BCSS)
+# 🛡️ Babuja Cloud Secure Systems (BCSS)
 ### *Next-Gen Autonomous Cloud Defense, Predictive Scaling & Quantum-Safe Infrastructure*
 
 [![Docker](https://img.shields.io/badge/Docker-Compose_v2-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
@@ -14,7 +14,7 @@
 
 ## 🎯 Executive Summary
 
-**Babuja Cloud Security Systems (BCSS)** is an enterprise-grade unified cloud resilience platform designed to tackle two of the most critical vulnerabilities of digital businesses: **uncontrolled cloud and paid API costs triggered by reactive traffic spikes**, and **severe vulnerability to advanced cyberattacks with prolonged intruder dwell-time**.
+**Babuja Cloud Secure Systems (BCSS)** is an enterprise-grade unified cloud resilience platform designed to tackle two of the most critical vulnerabilities of digital businesses: **uncontrolled cloud and paid API costs triggered by reactive traffic spikes**, and **severe vulnerability to advanced cyberattacks with prolonged intruder dwell-time**.
 
 By harmonizing **Predictive AI (Google Gemini 2.5 Flash)**, **Active Deception Honeypots with Stolen Token GPS Tracking**, **Post-Quantum Cryptography (PQC) Scanners**, and **Self-Healing CI/CD Pipelines with Statistical Z-score Canary Rollbacks**, BCSS transforms brittle and reactive cloud architectures into a self-governing, highly efficient defense perimeter.
 
@@ -37,23 +37,83 @@ By harmonizing **Predictive AI (Google Gemini 2.5 Flash)**, **Active Deception H
 
 ---
 
-### 2. The Solution: Babuja Cloud Security Systems (BCSS)
+### 2. The Solution: Babuja Cloud Secure Systems (BCSS)
 
-BCSS operates as a continuous closed-loop intelligence plane divided into three core pillars:
+BCSS acts as an interconnected, closed-loop neural plane operating across **three complementary pillars**:
+
+```mermaid
+flowchart TD
+    subgraph External["🌐 External Ingress & Real-World Signals"]
+        E1["📅 Real-World Events<br/>(Football, Concerts, PredictHQ)"]
+        E2["👥 Legitimate User Traffic<br/>(Web & Mobile Apps)"]
+        E3["🥷 Malicious Actors & Recon Bots<br/>(Brute-force, Scanners, Exploits)"]
+        E4["💻 Code Commits & Updates<br/>(Git / CI/CD Deployment)"]
+    end
+
+    subgraph Pillar1["⚡ Pillar 1: Predictive Performance & Smart Cache Engine"]
+        direction TB
+        S1["🧠 scraper-ai<br/>Gemini 2.5 Flash Ingestion & Feedback Loop"]
+        S2["🔥 server-preheat<br/>Just-In-Time Capacity Warm-up (Lambda / EC2)"]
+        S3["🚀 CacheManager<br/>FastAPI + Redis + Self-Critic Dynamic TTL"]
+        E1 --> S1 --> S2 --> S3
+        E2 --> S3
+    end
+
+    subgraph Pillar2["🛡️ Pillar 2: Active Deception & Threat Shield"]
+        direction TB
+        H1["🪤 Multi-Protocol Decoys<br/>(SSH :2222, HTTP :8080, Telnet :2323)"]
+        H2["🕵️ Behavioral Threat Classifier<br/>(Official MITRE ATT&CK Matrix Mapping)"]
+        H3["📍 Canary API GPS Tracker<br/>& Defensive Prompt Poisoning"]
+        H4["🔒 Forensic Cryptographic Vault<br/>(Immutable AES-256-GCM + SHA-256 Chain)"]
+        H5["🚫 Automated Perimeter Defense<br/>(Dynamic AWS NACL, SG & iptables Rules)"]
+        E3 --> H1 --> H2
+        H1 --> H3
+        H2 --> H4
+        H2 --> H5
+    end
+
+    subgraph Pillar3["⚛️ Pillar 3: Sovereign Cloud & Self-Healing CI/CD"]
+        direction TB
+        C1["🔬 JunctionX QuantumTrace<br/>(Post-Quantum Cryptography Scanner)"]
+        C2["🎛️ control-plane Engine<br/>(Z-Score Canary Deploy & Automated RCA)"]
+        C3["📊 OwnCloud & React 19 Consoles<br/>(Live Monitor, BinaryField, Threat Map)"]
+        E4 --> C1 --> C2 --> C3
+    end
+
+    S3 -.->|"⚡ Sub-10ms Cache Hit"| E2
+    H5 -.->|"⛔ Instant IP Drop"| E3
+```
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                   BABUJA CLOUD SECURITY SYSTEMS (BCSS)                      │
-└─────────────────────────────────────┬───────────────────────────────────────┘
-                                      │
-         ┌────────────────────────────┼────────────────────────────┐
-         ▼                            ▼                            ▼
-  [ ⚡ PILLAR 1 ]               [ 🛡️ PILLAR 2 ]               [ ⚛️ PILLAR 3 ]
-  PREDICTIVE EFFICIENCY        ACTIVE DECEPTION & DEFENSE    SOVEREIGN CLOUD & CI/CD
-  • Multi-API Realtime Ingestion • SSH/HTTP/TCP Decoys        • Post-Quantum Scanner (PQC)
-  • Gemini 2.5 Closed-Loop AI   • Canary API GPS Tracking     • Canary Z-score Rollback
-  • Just-In-Time Server Preheat • Defensive Prompt Poisoning  • Automated Root-Cause (RCA)
-  • Dynamic CacheManager        • Immutable AES-GCM Vault     • Markovian Load Testing
+====================================================================================================
+                                 BCSS DATA & CONTROL PLANE WORKFLOW
+====================================================================================================
+   [ INGRESS SIGNALS ]                 [ BCSS INTELLIGENCE CORE ]                   [ OUTCOME ]
+----------------------------------------------------------------------------------------------------
+  Real-World Events       ───►  [ scraper-ai (Gemini 2.5 Flash) ]
+  (Matches, Concerts)                    │
+                                         ▼
+                                [ server-preheat (JIT) ]        ───► Zero Cold-Starts (<120ms Latency)
+                                         │
+                                         ▼
+  User Web Traffic        ───►  [ CacheManager (Redis + Critic) ]   ───► 90%+ Cache Hit-Rate ($ Saved)
+----------------------------------------------------------------------------------------------------
+  Adversary / Scanners    ───►  [ Decoys (SSH:2222, HTTP:8080) ]
+                                         │
+                                         ▼
+                                [ Canary GPS & MITRE Analyzer ] ───► Auto-Firewall Drop (Zero Dwell-Time)
+                                         │
+                                         ▼
+                                [ Immutable AES-256 Vault ]     ───► Legally Admissible Audit Trail
+----------------------------------------------------------------------------------------------------
+  Code Deploys (CI/CD)    ───►  [ QuantumTrace (PQC Scanner) ]  ───► Quantum Vulnerability Gate
+                                         │
+                                         ▼
+                                [ Canary Z-Score & RCA Engine ] ───► Instant Automated Rollback on Bug
+                                         │
+                                         ▼
+                                [ OwnCloud & React Console ]    ───► Unified Real-Time Observability
+====================================================================================================
 ```
 
 #### ⚡ Pillar 1: Predictive Performance & Cost Reduction
@@ -272,7 +332,10 @@ hackaton-project/
 
 ---
 
-## 👥 Babuja Cloud Security Systems (BCSS) Team
+## 👥 Babuja Cloud Secure Systems (BCSS) Team
 *Developed for Hackathon 2026.*
-- **Afonso Sopa** — System Architecture, Predictive Traffic AI, Cache Manager & Cloud Honeypot Shield
-- **Manuel André** — OwnCloud Engine, QuantumTrace, Smart CI/CD & Frontend
+- Afonso Sopa
+- Manuel André
+- Diogo Pinto
+- Diogo Osório
+- Francisco Pereira
