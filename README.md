@@ -74,7 +74,7 @@ flowchart TD
 
     subgraph Pillar3["⚛️ Pillar 3: Sovereign Cloud & Self-Healing CI/CD"]
         direction TB
-        C1["🔬 JunctionX QuantumTrace<br/>(Post-Quantum Cryptography Scanner)"]
+        C1["🔬 QuantumTrace Engine<br/>(Post-Quantum Cryptography Scanner)"]
         C2["🎛️ control-plane Engine<br/>(Z-Score Canary Deploy & Automated RCA)"]
         C3["📊 OwnCloud & React 19 Consoles<br/>(Live Monitor, BinaryField, Threat Map)"]
         E4 --> C1 --> C2 --> C3
@@ -128,7 +128,7 @@ flowchart TD
 - **Forensic Cryptographic Vault**: Encrypts and writes every attacker terminal keystroke and network interaction into an append-only blockchain ledger secured with **AES-256-GCM** and SHA-256 hash chains.
 
 #### ⚛️ Pillar 3: Sovereign Cloud Infrastructure & Automated CI/CD
-- **`JunctionX` (QuantumTrace)**: Post-quantum static cryptographic scanner for Python, Go, and Java codebases, classifying algorithms by quantum risk tier (`critical`, `medium`, `resilient`).
+- **`QuantumTrace`**: Post-quantum static cryptographic scanner for Python, Go, and Java codebases, classifying algorithms by quantum risk tier (`critical`, `medium`, `resilient`).
 - **`control-plane` & `frontend`**: European sovereign app platform with **Statistical Canary Deployments** (automated rollback via two-proportion Z-score tests), **Automated Root-Cause Analysis (RCA)** mapping error traces directly to diff commits, and **Markovian Synthetic Load-Testing**.
 
 ---
@@ -158,7 +158,7 @@ When running the containerized stack, the following endpoints are published:
 | **Decoy Web Trap (HTTP)** | `8080` | Lure endpoints for credential-harvesting bots (`/.env`) | `curl http://localhost:8080/.env` |
 | **Decoy SSH Shell** | `2222` | Decoy SSH terminal backed by in-memory virtual filesystem | `ssh -p 2222 root@localhost` |
 | **Decoy Telnet Service** | `2323` | Legacy TCP interactive lure | `nc localhost 2323` |
-| **JunctionX Posture Web** | `5173` | Cryptographic posture and PQC readiness dashboard | [http://localhost:5173](http://localhost:5173) |
+| **QuantumTrace Posture Web** | `5173` | Cryptographic posture and PQC readiness dashboard | [http://localhost:5173](http://localhost:5173) |
 
 ---
 
@@ -202,7 +202,7 @@ docker compose up -d --build
 
 *(If your user profile requires elevated rights: `sudo docker compose up -d --build`)*
 
-#### Want to include the optional JunctionX React Frontend (:5173)?
+#### Want to include the optional Posture React Frontend (:5173)?
 ```bash
 docker compose --profile frontend up -d --build
 ```
@@ -310,7 +310,7 @@ hackaton-project/
 │   ├── app/loadtest.py             # Markov-chain synthetic load test generator
 │   └── app/quantum.py              # Client adapter for the QuantumTrace engine
 │
-├── JunctionX/                      # ⚛️ QuantumTrace post-quantum cryptographic auditor
+├── quantumtrace/                   # ⚛️ Post-quantum cryptographic auditor and posture dashboard
 │   ├── core/assessment.py          # Static source scanner (Python, Java, Go) for PQC readiness
 │   └── web/                        # React 18 + Tailwind posture dashboard
 │
