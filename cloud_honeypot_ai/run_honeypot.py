@@ -17,6 +17,10 @@ from cloud_honeypot_ai.core.session import GLOBAL_SESSION_MANAGER
 from cloud_honeypot_ai.crypto.canary_keys import CANARY_GENERATOR
 from cloud_honeypot_ai.crypto.posture_auditor import CRYPTO_AUDITOR
 from cloud_honeypot_ai.crypto.vault import CRYPTO_VAULT
+from cloud_honeypot_ai.deception.canary_api_tracker import CANARY_GPS_TRACKER
+from cloud_honeypot_ai.deception.defensive_prompt_poison import DEFENSIVE_POISONER
+from cloud_honeypot_ai.deception.honey_database import HONEY_DB_GENERATOR
+from cloud_honeypot_ai.deception.telemetry_beacon import TELEMETRY_BEACON_MGR
 from cloud_honeypot_ai.web.app import DashboardServer
 
 # Configure clean CLI logging
@@ -193,9 +197,76 @@ def cmd_demo(args) -> None:
         status_icon = "⚠️" if f.severity in ("CRITICAL", "HIGH") else "ℹ️"
         print(f"  {status_icon} [{f.component}] {f.algorithm}: {f.description}")
 
+    # 8. Active Deception, Living Cells, and Attacker De-anonymization
+    print("\n" + "=" * 75)
+    print("🎯 [Step 8] ACTIVE DECEPTION: LIVING CELL HONEYTOKENS & BEACON TRACKING")
+    print("=" * 75)
+
+    # 8.1 Living Cells in Database Dump
+    dump = HONEY_DB_GENERATOR.generate_customers_dump(session_id=session.session_id)
+    print(f"Generated Watermarked Database: {dump.table_name}.sql ({dump.total_records} records)")
+    print(f"Digital Provenance Hash:         {dump.watermark_hash}")
+    print(f"Living Cells Planted ({len(dump.living_cells)}):")
+    for cell in dump.living_cells:
+        print(f"  * [{cell.token_type}] {cell.label:<38}: {cell.token_value[:35]}...")
+
+    # 8.2 Logical GPS Trigger (Attacker tested API key locally, VPN bypassed)
+    gps_key = dump.living_cells[2].token_value
+    hacker_real_ip = "177.54.144.92"  # Public broadband in Brazil
+    gps_alert = CANARY_GPS_TRACKER.record_trigger(
+        api_key=gps_key,
+        client_ip=hacker_real_ip,
+        user_agent="python-requests/2.31.0",
+        headers={"Host": "api.picoas-cloud.internal", "Authorization": f"Bearer {gps_key}"},
+    )
+    print(f"\n[!] LOGICAL GPS TRIGGERED! Attacker tested key '{gps_key[:22]}...'")
+    print(f"    => Attacker DE-ANONYMIZED Real IP: {hacker_real_ip} ({gps_alert.city}, {gps_alert.country} - {gps_alert.asn})")
+
+    # 8.3 Defensive Prompt Injection (Poisoning Attacker's AI Agent)
+    poisoned_doc = DEFENSIVE_POISONER.generate_architecture_doc(session_id=session.session_id)
+    print(f"\n[!] DEFENSIVE PROMPT INJECTION PLANTED in '{poisoned_doc.file_path}'")
+    ai_event = DEFENSIVE_POISONER.record_ai_trigger(
+        query_params={"session": session.session_id, "agent_compromised": "true"},
+        client_ip=attacker_ip,
+        user_agent="AutoGPT-Agent/4.0-Scraper",
+    )
+    print(f"    => Attacker AI agent neutralized! Error beacon received from {ai_event['client_ip']} (UA: {ai_event['user_agent']})")
+
+    # 8.4 Telemetry Beacon Heartbeat (Stolen Code Executed on Hacker Laptop)
+    beacon_alert = TELEMETRY_BEACON_MGR.record_beacon_heartbeat(
+        client_ip=hacker_real_ip,
+        telemetry_dict={
+            "beacon_id": f"beacon_pkg_{session.session_id[:8]}",
+            "source_session": session.session_id,
+            "hostname": "kali-infiltrator-desktop",
+            "os": "Linux 6.1.0-kali9-amd64",
+            "local_user": "shadow_operator",
+            "machine": "x86_64",
+        },
+    )
+    print(f"\n[!] TELEMETRY BEACON HEARTBEAT RECEIVED!")
+    print(f"    => Hacker Machine Fingerprint: Host '{beacon_alert.target_hostname}' | User: '{beacon_alert.target_local_username}' | OS: '{beacon_alert.target_os}'")
+
     print("\n" + "=" * 75)
     print("✅ DEMO COMPLETE: All components executed and verified successfully!")
     print("=" * 75)
+
+
+def cmd_deception(args) -> None:
+    """Display active deception honeytokens and telemetry beacon alerts."""
+    dump = HONEY_DB_GENERATOR.generate_customers_dump(session_id="cli-manual-test")
+    doc = DEFENSIVE_POISONER.generate_architecture_doc(session_id="cli-manual-test")
+    print(json.dumps(
+        {
+            "database_dump": dump.to_dict(),
+            "poisoned_documentation": doc.to_dict(),
+            "active_gps_keys": len(HONEY_DB_GENERATOR.active_gps_keys),
+            "gps_alerts_recorded": [a.to_dict() for a in CANARY_GPS_TRACKER.all_triggers()],
+            "beacon_alerts_recorded": [b.to_dict() for b in TELEMETRY_BEACON_MGR.all_alerts()],
+            "ai_poison_events": DEFENSIVE_POISONER.all_ai_triggers(),
+        },
+        indent=2,
+    ))
 
 
 def cmd_defend(args) -> None:
@@ -259,6 +330,9 @@ def main():
     # Vault verify
     subparsers.add_parser("vault-verify", help="Verify forensic evidence vault cryptographic chain")
 
+    # Deception command
+    subparsers.add_parser("deception", help="Display active deception living cells, GPS tracking, and telemetry beacons")
+
     args = parser.parse_args()
 
     if args.command == "start":
@@ -271,6 +345,8 @@ def main():
         cmd_crypto_audit(args)
     elif args.command == "vault-verify":
         cmd_vault_verify(args)
+    elif args.command == "deception":
+        cmd_deception(args)
     else:
         parser.print_help()
 

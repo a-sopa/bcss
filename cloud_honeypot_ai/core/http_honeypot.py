@@ -10,6 +10,10 @@ from urllib.parse import parse_qs, urlparse
 
 from cloud_honeypot_ai.config import CONFIG
 from cloud_honeypot_ai.core.session import GLOBAL_SESSION_MANAGER, SessionManager
+from cloud_honeypot_ai.deception.canary_api_tracker import CANARY_GPS_TRACKER
+from cloud_honeypot_ai.deception.defensive_prompt_poison import DEFENSIVE_POISONER
+from cloud_honeypot_ai.deception.honey_database import HONEY_DB_GENERATOR
+from cloud_honeypot_ai.deception.telemetry_beacon import TELEMETRY_BEACON_MGR
 
 logger = logging.getLogger("honeypot.http")
 
@@ -89,6 +93,67 @@ class HoneypotHTTPHandler(BaseHTTPRequestHandler):
             session.record_command(f"GET {self.path}", "Rendered Fake Admin Login Page")
             self._respond(200, "text/html", html)
 
+        # 5. Active Deception: Logical GPS Canary API Key Validation
+        elif "/validate_key" in path or "/api/v1/validate_key" in path:
+            qs = parse_qs(parsed_url.query)
+            api_key = qs.get("api_key", [""])[0]
+            if not api_key and "Authorization" in self.headers:
+                auth = self.headers["Authorization"].replace("Bearer ", "").strip()
+                api_key = auth
+
+            gps_alert = CANARY_GPS_TRACKER.record_trigger(
+                api_key=api_key or "sk_unknown_probe",
+                client_ip=client_ip,
+                user_agent=user_agent,
+                headers=dict(self.headers),
+            )
+            session.record_command(
+                f"GPS_KEY_VALIDATION_ATTEMPT: {api_key}",
+                f"De-anonymized Real Attacker IP: {client_ip} ({gps_alert.city}, {gps_alert.country})",
+                canary_tag="GPS_CANARY_API_KEY_DEANONYMIZED",
+            )
+            resp = json.dumps({
+                "status": "valid",
+                "scope": ["admin:read", "admin:write", "payments:manage"],
+                "account_id": "acct_picoas_cloud_prod_01",
+                "message": "Key is authenticated and active.",
+            })
+            self._respond(200, "application/json", resp)
+
+        # 6. Active Deception: Defensive Prompt Injection AI Poisoning Trigger
+        elif "/ai-poison" in path or "/api/v1/ai-poison/trigger" in path:
+            qs = parse_qs(parsed_url.query)
+            event = DEFENSIVE_POISONER.record_ai_trigger(qs, client_ip, user_agent)
+            session.record_command(
+                f"ATTACKER_AI_POISONED_TRIGGER: {self.path}",
+                f"Attacker AI Agent Compromised & Beacon Received from IP: {client_ip}",
+                canary_tag="DEFENSIVE_PROMPT_INJECTION_TRIGGERED",
+            )
+            resp = json.dumps({"status": "acknowledged", "defense": "counter-intel-engaged"})
+            self._respond(200, "application/json", resp)
+
+        # 7. Active Deception: Honey Email Leak Webhook
+        elif "/canary/email-alert" in path or "/api/v1/canary/email-alert" in path:
+            qs = parse_qs(parsed_url.query)
+            token = qs.get("token", ["unknown"])[0]
+            session.record_command(
+                f"HONEY_EMAIL_LEAK_CONFIRMED: {token}",
+                f"Phishing/DarkWeb leak detected from IP: {client_ip}",
+                canary_tag="LIVING_CELL_EMAIL_LEAK_CONFIRMED",
+            )
+            resp = json.dumps({"status": "recorded", "leak_traced": True})
+            self._respond(200, "application/json", resp)
+
+        # 8. Active Deception: Database Dump Exfiltration with Living Cells
+        elif path in ("/api/v1/export/customers", "/export/customers.sql", "/api/export"):
+            db_dump = HONEY_DB_GENERATOR.generate_customers_dump(session_id=session.session_id)
+            session.record_command(
+                f"DATABASE_EXFILTRATION_REQUEST: {self.path}",
+                f"Injected 5 Living Cell tokens (Checksum: {db_dump.watermark_hash[:16]})",
+                canary_tag="LIVING_CELL_HONEY_DATABASE_SQL",
+            )
+            self._respond(200, "text/plain", db_dump.sql_content)
+
         # Default root
         else:
             payload = json.dumps(
@@ -116,6 +181,28 @@ class HoneypotHTTPHandler(BaseHTTPRequestHandler):
 
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode("utf-8", errors="replace") if content_length > 0 else ""
+
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path.lower()
+
+        # Handle Telemetry Beacon Callback from executed stolen code
+        if "/telemetry/beacon" in path or "/api/v1/telemetry/beacon" in path:
+            telemetry_data = {}
+            if body.startswith("{"):
+                try:
+                    telemetry_data = json.loads(body)
+                except Exception:
+                    pass
+            beacon_alert = TELEMETRY_BEACON_MGR.record_beacon_heartbeat(client_ip, telemetry_data)
+            session.record_command(
+                f"TELEMETRY_BEACON_HEARTBEAT_RECEIVED: {beacon_alert.beacon_id}",
+                f"Attacker executed code on machine '{beacon_alert.target_hostname}' (User: {beacon_alert.target_local_username}, OS: {beacon_alert.target_os}, Real IP: {client_ip})",
+                canary_tag="TELEMETRY_BEACON_DEANONYMIZED_ATTACKER",
+            )
+            resp_body = json.dumps({"status": "telemetry_received", "beacon_acknowledged": True})
+            self._respond(200, "application/json", resp_body)
+            self.session_mgr.close_session(session.session_id)
+            return
 
         username = "unknown"
         password = "unknown"
