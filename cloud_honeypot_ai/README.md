@@ -35,6 +35,11 @@ Implementámos um servidor Honeypot leve que:
    - **Forensic Crypto Vault (`crypto/vault.py`)**: Encriptação autenticada **AES-256-GCM**, encadeamento imutável de blocos com **SHA-256 (estilo blockchain)** e assinaturas **HMAC-SHA256**. Prova matematicamente que as evidências dos hackers não foram manipuladas ou apagadas.
    - **Auditor de Postura Criptográfica na Cloud (`crypto/posture_auditor.py`)**: Avalia a segurança dos algoritmos SSH, TLS e chaves AWS KMS, identificando algoritmos obsoletos (3DES, SHA-1, MD5, CBC) e pontuando a preparação para Criptografia Pós-Quântica (**PQC / NIST FIPS 203 ML-KEM**).
    - **Honey-Tokens Criptográficos (`crypto/canary_keys.py`)**: Chaves RSA e credenciais AWS KMS canário espalhadas no sistema para apanhar exfiltrações em flagrante.
+7. **Active Deception & Rastreadores Embutidos (Enterprise Counter-Intelligence)**:
+   - **Bases de Dados Fakes com "Células Vivas" (Honeytokens Dinâmicos)**: Geração dinâmica de dumps `.sql` e `.csv` na hora (`/var/backups/customers_dump.sql`, `/var/data/employees_export.csv`) com 5 tokens armadilhados (e-mails isco monitorizados, chaves API com GPS lógico e marcas de água criptográficas SHA-256 para atribuição legal de fugas).
+   - **Chaves de API Falsas com "GPS Lógico"**: Chaves `sk_live_picoas_gps_...` que, quando testadas pelo hacker no seu computador local (frequentemente com a VPN desligada), disparam um alerta silencioso capturando o IP real da máquina do invasor.
+   - **Prompt Injection Defensivo (Envenenamento de IA do Atacante)**: Decoys de arquitetura (`/docs/README_arquitetura.md`) com diretivas ocultas em comentários HTML que sequestram agentes de IA e scrapers de LLMs do atacante, forçando paragem imediata da exfiltração e alertas de contra-inteligência.
+   - **Código Proprietário com Beacons de Telemetria**: Ficheiros de projeto e testes unitários (`/opt/cloud_engine/`) que, ao serem executados localmente pelo hacker, transmitem a impressão digital do sistema (SO, utilizador, hostname e IP real).
 
 ---
 
@@ -65,10 +70,15 @@ hackaton-project/
     │   ├── vault.py                   # Cofre Forense (AES-256-GCM + SHA-256 + HMAC)
     │   ├── posture_auditor.py         # Auditor de Cifras, TLS, KMS e PQC NIST
     │   └── canary_keys.py             # Gerador de chaves RSA e credenciais isco
+    ├── deception/                     # Active Deception & Rastreadores Embutidos
+    │   ├── honey_database.py          # Dumps dinâmicos SQL/CSV com Células Vivas
+    │   ├── canary_api_tracker.py      # Chaves API com GPS Lógico (IP real)
+    │   ├── defensive_prompt_poison.py # Documentação com Prompt Injection Defensivo
+    │   └── telemetry_beacon.py        # Código proprietário isco com Beacons
     ├── web/                           # Dashboard Visual
     │   ├── app.py                     # Servidor HTTP do dashboard
-    │   └── static/                    # Interface dark-mode com feed ao vivo e terminal
-    └── tests/                         # Suite de Testes Automatizados (35 testes, 100% pass)
+    │   └── static/                    # Interface dark-mode com feed ao vivo, terminal e painel de Deception
+    └── tests/                         # Suite de Testes Automatizados (40 testes, 100% pass)
         ├── test_geoip.py
         ├── test_fake_filesystem.py
         ├── test_fake_shell.py
@@ -77,6 +87,7 @@ hackaton-project/
         ├── test_cloud_defense.py
         ├── test_crypto_vault.py
         ├── test_crypto_auditor.py
+        ├── test_active_deception.py
         └── test_integration.py
 ```
 
@@ -85,7 +96,7 @@ hackaton-project/
 ## ⚡ 4. Como Executar e Demonstrar
 
 ### A. Executar a Demonstração Completa (End-to-End)
-Executa em segundos uma simulação completa: conexão de atacante externo, ataque de dicionário, entrada no terminal isco com credencial `admin123`, execução de comandos maliciosos, roubo de canários AWS, análise por IA, selagem criptográfica no cofre e cálculo de poupança na cloud:
+Executa em segundos uma simulação completa: conexão de atacante externo, ataque de dicionário, entrada no terminal isco com credencial `admin123`, execução de comandos maliciosos, roubo de canários AWS, análise por IA, selagem criptográfica no cofre, cálculo de poupança na cloud e ativação dos 4 vetores de Active Deception (Células Vivas, GPS Lógico, Prompt Injection Defensivo e Beacons de Telemetria):
 
 ```bash
 cd hackaton-project
@@ -103,9 +114,10 @@ python3 -m cloud_honeypot_ai.run_honeypot start
 - **Simular Conexão TCP/Telnet**: `nc localhost 2323` (digite user `ubuntu` e password `admin123`)
 - **Simular Ataque HTTP**: `curl http://localhost:8080/.env`
 - **Verificar Banner SSH**: `nc localhost 2222` ou `ssh -p 2222 root@localhost`
+- **Painel de Active Deception**: Visível diretamente na página web com status de Honeytokens, chaves GPS e beacons capturados.
 
 ### C. Executar a Suite de Testes (100% Automatizada)
-Corre todos os 35 testes unitários e de integração:
+Corre todos os 40 testes unitários e de integração:
 
 ```bash
 cd hackaton-project
@@ -115,6 +127,9 @@ python3 -m unittest discover -s cloud_honeypot_ai/tests -v
 ### D. Outros Comandos Úteis do CLI
 
 ```bash
+# Simulação e Inspeção dos Rastreadores de Active Deception
+python3 -m cloud_honeypot_ai.run_honeypot deception
+
 # Gerar regras de firewall para a Cloud (AWS NACL, Security Groups, iptables)
 python3 -m cloud_honeypot_ai.run_honeypot defend
 

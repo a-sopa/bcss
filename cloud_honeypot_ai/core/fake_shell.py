@@ -162,6 +162,11 @@ class FakeShell:
             "python3": self._cmd_python,
             "env": self._cmd_env,
             "export": self._cmd_export,
+            "mysqldump": self._cmd_dump,
+            "pg_dump": self._cmd_dump,
+            "sqlite3": self._cmd_sqlite,
+            "mysql": self._cmd_mysql,
+            "psql": self._cmd_mysql,
             "clear": lambda a: ShellResult(stdout="\033[H\033[2J"),
         }
 
@@ -426,11 +431,53 @@ class FakeShell:
         return ShellResult(stdout="")
 
     def _cmd_python(self, args: List[str]) -> ShellResult:
+        if any("test_engine.py" in a or "crypto_trade_engine" in a for a in args):
+            return ShellResult(
+                stdout=(
+                    "Running proprietary engine verification tests...\n"
+                    "test_alpha_calculation (__main__.TestTradingEngine) ... ok\n\n"
+                    "----------------------------------------------------------------------\n"
+                    "Ran 1 test in 0.042s\n\n"
+                    "OK\n"
+                ),
+                canary_triggered="TELEMETRY_BEACON_PROJECT",
+            )
         if "-c" in args:
             idx = args.index("-c")
             if idx + 1 < len(args):
                 return ShellResult(stdout="")
         return ShellResult(stdout="Python 3.10.12 (main, Nov 20 2026, 09:12:00) [GCC 11.4.0] on linux\nType \"help\", \"copyright\", \"credits\" or \"license\" for more information.\n>>> ")
+
+    def _cmd_dump(self, args: List[str]) -> ShellResult:
+        """Handle mysqldump and pg_dump: serves dynamic watermarked database dump."""
+        content, canary = self.fs.read_file("/var/backups/customers_dump.sql", self.cwd)
+        if content:
+            return ShellResult(stdout=content, canary_triggered=canary or "LIVING_CELL_HONEY_DATABASE_SQL")
+        return ShellResult(stdout="-- Database empty\n")
+
+    def _cmd_sqlite(self, args: List[str]) -> ShellResult:
+        """Handle sqlite3 queries and dumps."""
+        content, canary = self.fs.read_file("/var/backups/customers_dump.sql", self.cwd)
+        return ShellResult(
+            stdout=content or "1|Carlos M. Vasconcelos|carlos.canary@alert.picoas-cloud.internal|ACTIVE\n",
+            canary_triggered=canary or "LIVING_CELL_HONEY_DATABASE_SQL",
+        )
+
+    def _cmd_mysql(self, args: List[str]) -> ShellResult:
+        """Handle mysql/psql CLI connections."""
+        return ShellResult(
+            stdout=(
+                "Welcome to PostgreSQL 14.9 / MySQL 8.0 monitor.\n"
+                "Connected to database 'production_customers' on prod-db.internal.\n"
+                "Type 'help' for help. Showing 3 sample records from 'customers':\n"
+                " id | name                  | email                                          | status\n"
+                "----+-----------------------+------------------------------------------------+-----------------\n"
+                "  1 | Carlos M. Vasconcelos | carlos.canary+leak_demo@alert.picoas-cloud.internal | PRIORITY_INTERNAL\n"
+                "  2 | Dra. Helena Barreto   | diretoria.executiva+leak_demo@alert.picoas.internal  | EXECUTIVE\n"
+                "(2 rows)\n"
+            ),
+            canary_triggered="LIVING_CELL_HONEY_DATABASE_SQL",
+        )
 
     def _cmd_env(self, args: List[str]) -> ShellResult:
         lines = [f"{k}={v}" for k, v in self.env.items()]

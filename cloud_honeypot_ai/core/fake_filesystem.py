@@ -50,8 +50,12 @@ class FakeFilesystem:
             "/var",
             "/var/log",
             "/var/www",
+            "/var/backups",
+            "/var/data",
             "/tmp",
             "/opt",
+            "/opt/cloud_engine",
+            "/docs",
             "/usr",
             "/usr/bin",
             "/usr/local",
@@ -194,13 +198,57 @@ class FakeFilesystem:
                 "cd /app && ls -la\n"
                 "cat .env\n"
                 "git status\n"
-                "aws s3 ls --profile default\n"
+                "pg_dump -h prod-db.internal -U dbadmin customers > /var/backups/customers_dump.sql\n"
+                "cat /docs/README_arquitetura.md\n"
             ),
             permissions="-rw-------",
             owner="ubuntu",
             group="ubuntu",
-            size=190,
+            size=260,
         )
+
+        # Active Deception Assets:
+        from cloud_honeypot_ai.deception.honey_database import HONEY_DB_GENERATOR
+        from cloud_honeypot_ai.deception.defensive_prompt_poison import DEFENSIVE_POISONER
+        from cloud_honeypot_ai.deception.telemetry_beacon import TELEMETRY_BEACON_MGR
+
+        # 1. Armadilha 1: Base de dados com Células Vivas
+        db_dump = HONEY_DB_GENERATOR.generate_customers_dump(session_id="env_default_01")
+        self.files["/var/backups/customers_dump.sql"] = FakeFile(
+            name="customers_dump.sql",
+            content=db_dump.sql_content,
+            permissions="-rw-r--r--",
+            size=len(db_dump.sql_content),
+            canary_tag="LIVING_CELL_HONEY_DATABASE_SQL",
+        )
+        self.files["/var/data/employees_export.csv"] = FakeFile(
+            name="employees_export.csv",
+            content=db_dump.csv_content,
+            permissions="-rw-r--r--",
+            size=len(db_dump.csv_content),
+            canary_tag="LIVING_CELL_EMPLOYEES_CSV",
+        )
+
+        # 2. Armadilha 2: Documentação com Prompt Injection Defensivo
+        poisoned_doc = DEFENSIVE_POISONER.generate_architecture_doc(session_id="env_default_01")
+        self.files["/docs/README_arquitetura.md"] = FakeFile(
+            name="README_arquitetura.md",
+            content=poisoned_doc.document_content,
+            permissions="-rw-r--r--",
+            size=len(poisoned_doc.document_content),
+            canary_tag="DEFENSIVE_PROMPT_POISON_DOC",
+        )
+
+        # 3. Armadilha 3: Projeto com Beacons de Telemetria
+        beacon_files = TELEMETRY_BEACON_MGR.generate_decoy_project_files(session_id="env_default_01")
+        for path_str, content_str in beacon_files.items():
+            self.files[path_str] = FakeFile(
+                name=path_str.split("/")[-1],
+                content=content_str,
+                permissions="-rwxr-xr-x",
+                size=len(content_str),
+                canary_tag="TELEMETRY_BEACON_PROJECT",
+            )
 
     def _normalize_path(self, path: str, cwd: str = "/home/ubuntu") -> str:
         """Resolve relative and absolute paths into canonical path."""

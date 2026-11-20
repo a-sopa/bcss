@@ -104,6 +104,16 @@ Waiting for adversary connection...
 
       <div class="panel">
         <div class="panel-header">
+          <span>🎯 Active Deception & Honeytokens Vivos</span>
+          <span class="tag tag-critical">GPS & TELEMETRY</span>
+        </div>
+        <div id="deception-box" style="font-size: 0.825rem; line-height: 1.5;">
+          <p style="color: #9ca3af;">Awaiting attacker exfiltration of watermarked databases, beacons, or poisoned docs...</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
           <span>⚡ Automated Cloud Efficiency Defense</span>
         </div>
         <p style="font-size: 0.825rem; color: #9ca3af; margin-bottom: 10px;">
@@ -131,12 +141,13 @@ aws ec2 create-network-acl-entry --rule-action deny ...
   <script>
     async function fetchData() {
       try {
-        const [resStatus, resSessions, resThreats, resEff, resCrypto] = await Promise.all([
+        const [resStatus, resSessions, resThreats, resEff, resCrypto, resDeception] = await Promise.all([
           fetch('/api/status').then(r => r.json()),
           fetch('/api/sessions').then(r => r.json()),
           fetch('/api/threats').then(r => r.json()),
           fetch('/api/efficiency').then(r => r.json()),
           fetch('/api/crypto').then(r => r.json()),
+          fetch('/api/deception').then(r => r.json()),
         ]);
 
         // Metrics
@@ -162,6 +173,44 @@ aws ec2 create-network-acl-entry --rule-action deny ...
         if (resCrypto && resCrypto.crypto_audit) {
           document.getElementById('crypto-grade').innerText = `Grade ${resCrypto.crypto_audit.grade} (${resCrypto.crypto_audit.security_score}/100)`;
           document.getElementById('pqc-score').innerText = `${resCrypto.crypto_audit.pqc_readiness_score}% (NIST PQC ML-KEM/DSA)`;
+        }
+
+        // Render Active Deception & Honeytokens
+        if (resDeception) {
+          let deceptionHtml = `
+            <div style="margin-bottom:8px;">
+              <strong>Living Cells:</strong> <span style="color:#38bdf8;">${resDeception.canary_emails_count} Decoy Emails</span> | <span style="color:#10b981;">${resDeception.gps_keys_count} GPS API Keys</span>
+            </div>
+          `;
+          if (resDeception.gps_triggers && resDeception.gps_triggers.length > 0) {
+            const lastGps = resDeception.gps_triggers[resDeception.gps_triggers.length - 1];
+            deceptionHtml += `
+              <div style="background:#1e1e38;padding:8px;border-radius:4px;margin-bottom:6px;border-left:3px solid #ef4444;">
+                <span class="tag tag-critical">GPS DE-ANONYMIZED</span>
+                <div>Attacker Real IP: <strong style="color:#f43f5e;">${lastGps.attacker_real_ip}</strong> (${lastGps.city}, ${lastGps.country})</div>
+                <div style="font-size:0.75rem;color:#94a3b8;">Tested Key: <code>${lastGps.canary_key.substring(0,25)}...</code></div>
+              </div>
+            `;
+          }
+          if (resDeception.beacon_alerts && resDeception.beacon_alerts.length > 0) {
+            const lastBeacon = resDeception.beacon_alerts[resDeception.beacon_alerts.length - 1];
+            deceptionHtml += `
+              <div style="background:#172554;padding:8px;border-radius:4px;margin-bottom:6px;border-left:3px solid #3b82f6;">
+                <span class="tag tag-med">TELEMETRY BEACON</span>
+                <div>Executed on Host: <strong style="color:#60a5fa;">${lastBeacon.target_hostname}</strong></div>
+                <div style="font-size:0.75rem;color:#94a3b8;">Local User: <strong>${lastBeacon.target_local_username}</strong> | OS: ${lastBeacon.target_os}</div>
+              </div>
+            `;
+          }
+          if (resDeception.ai_poison_events && resDeception.ai_poison_events.length > 0) {
+            deceptionHtml += `
+              <div style="background:#2e1065;padding:8px;border-radius:4px;border-left:3px solid #a855f7;">
+                <span class="tag tag-high">AI POISON TRIGGERED</span>
+                <div style="font-size:0.75rem;color:#d8b4fe;">Attacker AI agent neutralized by defensive prompt injection!</div>
+              </div>
+            `;
+          }
+          document.getElementById('deception-box').innerHTML = deceptionHtml;
         }
 
         // Render Feed Table
